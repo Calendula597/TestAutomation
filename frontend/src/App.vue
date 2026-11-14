@@ -1,5 +1,21 @@
 <script setup lang="ts">
-// Locale is applied globally in main.ts.
+import { computed } from "vue";
+import { useRouter } from "vue-router";
+import { logout } from "./api/auth";
+import { session } from "./stores/session";
+
+const router = useRouter();
+
+const authed = computed(() => session.username !== null);
+
+async function doLogout(): Promise<void> {
+  try {
+    await logout();
+  } finally {
+    session.clear();
+    await router.push("/login");
+  }
+}
 </script>
 
 <template>
@@ -8,7 +24,15 @@
       <span class="brand">统一测试平台</span>
       <nav class="nav">
         <router-link to="/health">系统健康</router-link>
+        <router-link v-if="session.isAdmin" to="/users">用户管理</router-link>
       </nav>
+      <div class="spacer" />
+      <template v-if="authed">
+        <span class="whoami" data-testid="whoami">{{ session.username }}</span>
+        <el-button size="small" data-testid="logout" @click="doLogout"
+          >退出登录</el-button
+        >
+      </template>
     </el-header>
     <el-main>
       <router-view />
@@ -33,13 +57,25 @@
   font-weight: 600;
 }
 
+.nav {
+  display: flex;
+  gap: 16px;
+}
+
 .nav a {
   color: var(--el-text-color-primary);
   text-decoration: none;
-  margin-right: 16px;
 }
 
 .nav a.router-link-active {
   color: var(--el-color-primary);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.whoami {
+  color: var(--el-text-color-secondary);
 }
 </style>

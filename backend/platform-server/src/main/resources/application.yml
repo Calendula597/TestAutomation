@@ -12,6 +12,18 @@ spring:
       connection-timeout: 3000
   flyway:
     enabled: true
+  session:
+    # Self-hosted single-team deployment; aligns with PRD session expiry.
+    timeout: 30m
+
+mybatis-plus:
+  configuration:
+    # Route enums with @EnumValue through MyBatis-Plus' composite handler.
+    default-enum-type-handler: com.baomidou.mybatisplus.core.handlers.CompositeEnumTypeHandler
 
 server:
   port: 8080
+
+logging:
+  level:
+    org.springframework.security: TRACE
