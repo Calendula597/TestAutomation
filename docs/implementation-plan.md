@@ -4,7 +4,7 @@
 状态：已废止；仅保留为历史方案，不再作为实施依据。
 依据：[开源产品调研](./research/2026-11-14-open-source-test-platforms.md)。
 
-> 用户已推翻本文的 Java 后端技术结论。本项目改用纯 TypeScript 前后端，前端使用 React；业务架构和交付范围须经 Matt `grill-me` 访谈重新确认。本文后续 Java、Spring Boot、Vue 和 Worker 技术选型均不再执行。
+> 本文是早期方案，期间的技术栈调整均已结束。经完整 Matt `grill-me` 访谈，最终确定为 Java 21 + Spring Boot 后端、Vue 3 + TypeScript 前端、Java 主 Worker、独立 Node.js Electron Worker，以及 k6/Appium 专业引擎。当前唯一产品与实施依据是 [PRD #1](https://github.com/Calendula597/TestAutomation/issues/1) 和垂直票据 #2–#26；本文其余内容仅作历史参考。
 
 ## 1. 目标与已确认要求
 

@@ -1,6 +1,6 @@
 # 开源一体化测试平台调研
 
-> 历史说明：文中“用户已选定 Java 后端 + Vue 前端”等结论已被后续决策取代。当前自研代码使用 TypeScript，前端使用 React；产品范围以重新完成的 `grill-me` 访谈为准。开源项目事实与来源快照仍予保留。
+> 历史说明：本文形成后的技术栈调整已结束。经完整 `grill-me` 访谈，最终采用 Java 后端、Vue 3 + TypeScript 前端及按执行器划分的专业引擎；当前产品范围以 [PRD #1](https://github.com/Calendula597/TestAutomation/issues/1) 和票据 #2–#26 为准。开源项目事实与来源快照仍予保留。
 
 调研日期：2026 年 11 月 14 日（Asia/Shanghai）。
 
