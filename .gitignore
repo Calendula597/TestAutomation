@@ -13,3 +13,14 @@ test-results/
 artifacts/
 .DS_Store
 Thumbs.db
+
+# Java build output
+target/
+
+# Agent tool state
+.mimosa/
+
+# IDE
+.idea/
+*.iml
+.vscode/

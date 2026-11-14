@@ -1,0 +1,17 @@
+spring:
+  application:
+    name: platform-server
+  datasource:
+    # Local defaults match deploy/docker-compose.yml; production overrides via env.
+    url: ${APP_DB_URL:jdbc:postgresql://localhost:5432/test_platform}
+    username: ${APP_DB_USER:testplatform}
+    password: ${APP_DB_PASSWORD:testplatform_dev}
+    hikari:
+      # A stopped database must turn the health probe DOWN in seconds, not
+      # hang the endpoint for the default 30s pool timeout.
+      connection-timeout: 3000
+  flyway:
+    enabled: true
+
+server:
+  port: 8080

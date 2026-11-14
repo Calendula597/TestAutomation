@@ -1,0 +1,22 @@
+services:
+  db:
+    # Digest = PostgreSQL 16.15 + pgvector, verified locally 2026-11-14.
+    # PRD #1 forbids floating tags; bump deliberately with a new verification.
+    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    environment:
+      POSTGRES_DB: test_platform
+      POSTGRES_USER: testplatform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testplatform_dev}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testplatform -d test_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
