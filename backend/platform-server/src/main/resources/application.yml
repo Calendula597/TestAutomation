@@ -30,6 +30,20 @@ mybatis-plus:
 server:
   port: 8080
 
+app:
+  model:
+    # OpenAI-compatible provider (PRD #1: configured by the administrator;
+    # the key is injected via environment, never committed).
+    base-url: ${APP_MODEL_BASE_URL:}
+    api-key: ${APP_MODEL_API_KEY:}
+    name: ${APP_MODEL_NAME:}
+  embedding:
+    base-url: ${APP_EMBEDDING_BASE_URL:}
+    api-key: ${APP_EMBEDDING_API_KEY:}
+    model: ${APP_EMBEDDING_MODEL:}
+  agent:
+    max-sessions-per-project: 5
+
 logging:
   level:
     org.springframework.security: TRACE

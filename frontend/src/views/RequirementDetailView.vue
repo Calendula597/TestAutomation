@@ -9,6 +9,7 @@ import {
   type RequirementVersionRow,
 } from "../api/requirements";
 import { ApiError } from "../api/http";
+import AgentPanel from "../components/AgentPanel.vue";
 
 const route = useRoute();
 const projectId = computed(() => Number(route.params.id));
@@ -228,6 +229,12 @@ watch([projectId, requirementId], load);
       description="需求不存在"
     />
   </el-card>
+
+  <AgentPanel
+    v-if="state.requirement"
+    :project-id="projectId"
+    :requirement-id="requirementId"
+  />
 </template>
 
 <style scoped>
