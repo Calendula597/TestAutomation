@@ -27,10 +27,28 @@ async function ensureCsrfCookie(): Promise<void> {
   }
 }
 
+async function backendMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const payload = (await response.json()) as { message?: string };
+    if (payload?.message) {
+      return payload.message;
+    }
+  } catch {
+    // body was empty or not JSON; keep the fallback
+  }
+  return fallback;
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(path, { credentials: "same-origin" });
   if (!response.ok) {
-    throw new ApiError(`接口返回 HTTP ${response.status}`, response.status);
+    throw new ApiError(
+      await backendMessage(response, `接口返回 HTTP ${response.status}`),
+      response.status,
+    );
   }
   return (await response.json()) as T;
 }
@@ -55,16 +73,10 @@ export async function apiSend<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
-    let message = `接口返回 HTTP ${response.status}`;
-    try {
-      const payload = (await response.json()) as { message?: string };
-      if (payload?.message) {
-        message = payload.message;
-      }
-    } catch {
-      // keep the generic message
-    }
-    throw new ApiError(message, response.status);
+    throw new ApiError(
+      await backendMessage(response, `接口返回 HTTP ${response.status}`),
+      response.status,
+    );
   }
   if (response.status === 204) {
     return undefined as T;

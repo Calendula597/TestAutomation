@@ -6,6 +6,8 @@ import InitializeView from "../views/InitializeView.vue";
 import LoginView from "../views/LoginView.vue";
 import ProjectDetailView from "../views/ProjectDetailView.vue";
 import ProjectsView from "../views/ProjectsView.vue";
+import RequirementDetailView from "../views/RequirementDetailView.vue";
+import RequirementsView from "../views/RequirementsView.vue";
 import UsersView from "../views/UsersView.vue";
 
 const router = createRouter({
@@ -47,6 +49,18 @@ const router = createRouter({
       name: "project-detail",
       component: ProjectDetailView,
       meta: { title: "项目详情" },
+    },
+    {
+      path: "/projects/:id/requirements",
+      name: "requirements",
+      component: RequirementsView,
+      meta: { title: "需求" },
+    },
+    {
+      path: "/projects/:id/requirements/:requirementId",
+      name: "requirement-detail",
+      component: RequirementDetailView,
+      meta: { title: "需求详情" },
     },
   ],
 });
