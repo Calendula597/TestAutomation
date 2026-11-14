@@ -12,6 +12,12 @@ spring:
       connection-timeout: 3000
   flyway:
     enabled: true
+  servlet:
+    multipart:
+      # The import controller enforces its own 5MB file limit; this keeps
+      # oversized uploads below the container threshold.
+      max-file-size: 6MB
+      max-request-size: 6MB
   session:
     # Self-hosted single-team deployment; aligns with PRD session expiry.
     timeout: 30m

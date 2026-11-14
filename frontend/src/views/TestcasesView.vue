@@ -33,6 +33,11 @@ import {
 } from "../api/testcases";
 import { fetchProject } from "../api/projects";
 import {
+  commitImport,
+  previewImport,
+  type ImportPreview,
+} from "../api/migration";
+import {
   fetchReviewDiff,
   fetchReviewVersions,
   publishCase,
@@ -66,6 +71,17 @@ const state = reactive({
   batching: false,
   conflict: null as string | null,
   groupBy: "" as "" | "priority" | "requirementTitle",
+  import: {
+    visible: false,
+    file: null as File | null,
+    titleColumn: 0,
+    priorityColumn: 1,
+    stepsColumn: 2,
+    preview: null as ImportPreview | null,
+    previewing: false,
+    committing: false,
+    error: null as string | null,
+  },
   myRole: "" as string,
   reviewCase: null as CaseRow | null,
   reviewDiff: null as DiffResponse | null,
@@ -318,6 +334,62 @@ async function loadRole(): Promise<void> {
   }
 }
 
+function onImportFileChange(file: File | null): void {
+  state.import.file = file;
+}
+
+async function runPreview(): Promise<void> {
+  if (!state.import.file) {
+    ElMessage.warning("请选择 CSV 或 .xlsx 文件");
+    return;
+  }
+  state.import.previewing = true;
+  state.import.error = null;
+  try {
+    state.import.preview = await previewImport(
+      projectId.value,
+      state.import.file,
+      {
+        titleColumn: state.import.titleColumn,
+        priorityColumn: state.import.priorityColumn,
+        stepsColumn: state.import.stepsColumn,
+      },
+    );
+  } catch (error) {
+    state.import.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.import.previewing = false;
+  }
+}
+
+async function runCommit(): Promise<void> {
+  if (!state.import.preview) {
+    return;
+  }
+  const validRows = state.import.preview.rows
+    .filter((r) => r.errors.length === 0)
+    .map((r) => ({ title: r.title, priority: r.priority, steps: r.steps }));
+  state.import.committing = true;
+  state.import.error = null;
+  try {
+    const result = await commitImport(projectId.value, validRows);
+    ElMessage.success(`已导入 ${result.created} 条草稿`);
+    state.import.visible = false;
+    state.import.preview = null;
+    state.import.file = null;
+    await load();
+  } catch (error) {
+    state.import.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.import.committing = false;
+  }
+}
+
+function exportCases(format: string): void {
+  // Same-origin GET downloads carry the session cookie automatically.
+  window.location.href = `/api/v1/projects/${projectId.value}/testcases/export?format=${format}`;
+}
+
 function addStep(): void {
   state.steps.push({ action: "", testData: "", expected: "" });
 }
@@ -443,6 +515,20 @@ onBeforeUnmount(() => {
           >
             批量修改选中行（{{ state.selectedIds.length }}）
           </el-button>
+          <el-button
+            size="small"
+            data-testid="import-open"
+            @click="state.import.visible = true"
+          >
+            导入
+          </el-button>
+          <el-dropdown size="small" @command="exportCases">
+            <el-button size="small" data-testid="export-open">导出</el-button>
+            <template #dropdown>
+              <el-dropdown-item command="csv">导出 CSV</el-dropdown-item>
+              <el-dropdown-item command="xlsx">导出 Excel</el-dropdown-item>
+            </template>
+          </el-dropdown>
           <el-button size="small" :loading="state.loading" @click="load"
             >刷新</el-button
           >
@@ -644,6 +730,111 @@ onBeforeUnmount(() => {
         />
       </div>
     </div>
+
+    <el-dialog
+      v-model="state.import.visible"
+      title="导入用例（Excel/CSV）"
+      width="720px"
+    >
+      <el-form label-position="top">
+        <el-form-item
+          label="文件（UTF-8 CSV 或 .xlsx，≤5MB、≤2000 行，首行为表头）"
+        >
+          <input
+            type="file"
+            accept=".csv,.xlsx"
+            data-testid="import-file"
+            @change="
+              (e: Event) =>
+                onImportFileChange(
+                  (e.target as HTMLInputElement).files?.[0] ?? null,
+                )
+            "
+          />
+        </el-form-item>
+        <el-form-item label="列映射（0 起始列号）">
+          <div class="mapping-row">
+            <el-input-number
+              v-model="state.import.titleColumn"
+              :min="0"
+              data-testid="import-title-col"
+              placeholder="标题列"
+            />
+            <el-input-number
+              v-model="state.import.priorityColumn"
+              :min="0"
+              data-testid="import-priority-col"
+              placeholder="优先级列"
+            />
+            <el-input-number
+              v-model="state.import.stepsColumn"
+              :min="0"
+              data-testid="import-steps-col"
+              placeholder="步骤列"
+            />
+          </div>
+          <div class="mapping-hint">步骤列每行一条「动作 :: 预期」。</div>
+        </el-form-item>
+        <el-alert
+          v-if="state.import.error"
+          type="error"
+          :closable="false"
+          show-icon
+          :title="state.import.error"
+        />
+      </el-form>
+
+      <template v-if="state.import.preview">
+        <el-alert
+          :type="
+            state.import.preview.rows.every((r) => r.errors.length === 0)
+              ? 'success'
+              : 'warning'
+          "
+          :closable="false"
+          show-icon
+          :title="`共 ${state.import.preview.totalRows} 行，可导入 ${state.import.preview.rows.filter((r) => r.errors.length === 0).length} 行`"
+          data-testid="import-summary"
+        />
+        <el-table
+          :data="state.import.preview.rows"
+          size="small"
+          max-height="320"
+          data-testid="import-preview-table"
+        >
+          <el-table-column label="行号" width="70">
+            <template #default="{ row }">{{ row.rowNumber + 1 }}</template>
+          </el-table-column>
+          <el-table-column prop="title" label="标题" />
+          <el-table-column label="错误" width="240">
+            <template #default="{ row }">
+              <span v-if="row.errors.length === 0" class="ok-text">通过</span>
+              <span v-else class="error-text">{{ row.errors.join("；") }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+
+      <template #footer>
+        <el-button @click="state.import.visible = false">取消</el-button>
+        <el-button
+          :loading="state.import.previewing"
+          data-testid="import-preview"
+          @click="runPreview"
+        >
+          预览
+        </el-button>
+        <el-button
+          type="primary"
+          :disabled="!state.import.preview"
+          :loading="state.import.committing"
+          data-testid="import-commit"
+          @click="runCommit"
+        >
+          确认导入草稿
+        </el-button>
+      </template>
+    </el-dialog>
   </el-card>
 </template>
 
@@ -717,6 +908,24 @@ onBeforeUnmount(() => {
   margin-top: 12px;
   display: flex;
   gap: 8px;
+}
+
+.mapping-row {
+  display: flex;
+  gap: 8px;
+}
+
+.mapping-hint {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.ok-text {
+  color: var(--el-color-success);
+}
+
+.error-text {
+  color: var(--el-color-danger);
 }
 
 .panel-title {
