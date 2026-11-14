@@ -4,6 +4,8 @@ import { session } from "../stores/session";
 import HealthView from "../views/HealthView.vue";
 import InitializeView from "../views/InitializeView.vue";
 import LoginView from "../views/LoginView.vue";
+import ManualPlansView from "../views/ManualPlansView.vue";
+import ManualRunView from "../views/ManualRunView.vue";
 import ProjectDetailView from "../views/ProjectDetailView.vue";
 import ProjectsView from "../views/ProjectsView.vue";
 import RequirementDetailView from "../views/RequirementDetailView.vue";
@@ -68,6 +70,18 @@ const router = createRouter({
       name: "testcases",
       component: TestcasesView,
       meta: { title: "功能用例" },
+    },
+    {
+      path: "/projects/:id/plans",
+      name: "plans",
+      component: ManualPlansView,
+      meta: { title: "测试计划" },
+    },
+    {
+      path: "/projects/:id/plans/:planId/runs/:runId",
+      name: "plan-run",
+      component: ManualRunView,
+      meta: { title: "执行运行" },
     },
   ],
 });

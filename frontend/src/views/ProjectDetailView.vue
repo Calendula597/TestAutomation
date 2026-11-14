@@ -113,6 +113,9 @@ watch(projectId, load);
             class="entry-link"
             >功能用例</router-link
           >
+          <router-link :to="`/projects/${projectId}/plans`" class="entry-link"
+            >测试计划</router-link
+          >
           <el-button :loading="state.loading" @click="load">刷新</el-button>
         </div>
       </div>
