@@ -102,7 +102,19 @@ watch(projectId, load);
             {{ state.project.status === "ACTIVE" ? "进行中" : "已归档" }}
           </el-tag>
         </span>
-        <el-button :loading="state.loading" @click="load">刷新</el-button>
+        <div>
+          <router-link
+            :to="`/projects/${projectId}/requirements`"
+            class="entry-link"
+            >需求</router-link
+          >
+          <router-link
+            :to="`/projects/${projectId}/testcases`"
+            class="entry-link"
+            >功能用例</router-link
+          >
+          <el-button :loading="state.loading" @click="load">刷新</el-button>
+        </div>
       </div>
     </template>
 
@@ -203,6 +215,12 @@ watch(projectId, load);
 
 .status-tag {
   margin-left: 8px;
+}
+
+.entry-link {
+  margin-right: 16px;
+  color: var(--el-color-primary);
+  text-decoration: none;
 }
 
 .add-member-form {

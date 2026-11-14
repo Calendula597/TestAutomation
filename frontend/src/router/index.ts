@@ -8,6 +8,7 @@ import ProjectDetailView from "../views/ProjectDetailView.vue";
 import ProjectsView from "../views/ProjectsView.vue";
 import RequirementDetailView from "../views/RequirementDetailView.vue";
 import RequirementsView from "../views/RequirementsView.vue";
+import TestcasesView from "../views/TestcasesView.vue";
 import UsersView from "../views/UsersView.vue";
 
 const router = createRouter({
@@ -61,6 +62,12 @@ const router = createRouter({
       name: "requirement-detail",
       component: RequirementDetailView,
       meta: { title: "需求详情" },
+    },
+    {
+      path: "/projects/:id/testcases",
+      name: "testcases",
+      component: TestcasesView,
+      meta: { title: "功能用例" },
     },
   ],
 });
