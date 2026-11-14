@@ -17,3 +17,7 @@ Use the canonical terms in [UBIQUITOUS_LANGUAGE.md](./UBIQUITOUS_LANGUAGE.md). T
 ### Frontend module boundaries
 
 The Vue frontend is a deep module — see [frontend/README.md](./frontend/README.md) before adding or importing a package. These rules do not apply to Java backend modules.
+
+### Code comments
+
+Write comments only where the logic is non-obvious. Do not reference ADRs, PRDs or tickets in source comments — traceability lives in [docs/adr/](./docs/adr/) and the issue tracker, not in code.

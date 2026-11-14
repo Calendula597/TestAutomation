@@ -18,7 +18,7 @@ import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
 /**
  * Browser-facing security: server-side sessions in HttpOnly cookies with
- * SPA-friendly CSRF protection (PRD #1).
+ * SPA-friendly CSRF protection.
  */
 @Configuration
 @EnableWebSecurity

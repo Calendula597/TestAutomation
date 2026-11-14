@@ -11,7 +11,7 @@ import java.time.Instant;
 import java.util.Map;
 
 /**
- * Public health endpoint consumed by the Vue health page (T01).
+ * Public health endpoint consumed by the Vue health page.
  */
 @RestController
 @RequestMapping("/api/v1")

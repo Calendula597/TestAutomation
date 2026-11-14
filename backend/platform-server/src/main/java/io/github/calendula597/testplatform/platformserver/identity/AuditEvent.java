@@ -7,8 +7,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import java.time.OffsetDateTime;
 
 /**
- * Immutable audit trail entry. Must never contain credentials or tokens
- * (PRD #1: audit records free of sensitive values).
+ * Immutable audit trail entry. Must never contain credentials or tokens.
  */
 @TableName("audit_event")
 public class AuditEvent {

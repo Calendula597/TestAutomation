@@ -23,6 +23,7 @@ async function doLogout(): Promise<void> {
     <el-header class="header">
       <span class="brand">统一测试平台</span>
       <nav class="nav">
+        <router-link to="/projects">项目</router-link>
         <router-link to="/health">系统健康</router-link>
         <router-link v-if="session.isAdmin" to="/users">用户管理</router-link>
       </nav>

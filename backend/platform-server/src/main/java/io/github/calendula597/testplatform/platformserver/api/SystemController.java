@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
  * One-time platform initialization and ADMIN user management.
  *
  * The initialize endpoint is the only path that may create the first
- * account; there is no default or seeded user (PRD #1).
+ * account; there is no default or seeded user.
  */
 @RestController
 @RequestMapping("/api/v1/system")

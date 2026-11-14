@@ -4,12 +4,14 @@ import { session } from "../stores/session";
 import HealthView from "../views/HealthView.vue";
 import InitializeView from "../views/InitializeView.vue";
 import LoginView from "../views/LoginView.vue";
+import ProjectDetailView from "../views/ProjectDetailView.vue";
+import ProjectsView from "../views/ProjectsView.vue";
 import UsersView from "../views/UsersView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: { name: "health" } },
+    { path: "/", redirect: { name: "projects" } },
     {
       path: "/health",
       name: "health",
@@ -33,6 +35,18 @@ const router = createRouter({
       name: "users",
       component: UsersView,
       meta: { title: "用户管理", adminOnly: true },
+    },
+    {
+      path: "/projects",
+      name: "projects",
+      component: ProjectsView,
+      meta: { title: "项目" },
+    },
+    {
+      path: "/projects/:id",
+      name: "project-detail",
+      component: ProjectDetailView,
+      meta: { title: "项目详情" },
     },
   ],
 });
