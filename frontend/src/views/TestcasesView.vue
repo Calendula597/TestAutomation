@@ -31,6 +31,14 @@ import {
   type CaseRow,
   type StepRow,
 } from "../api/testcases";
+import { fetchProject } from "../api/projects";
+import {
+  fetchReviewDiff,
+  fetchReviewVersions,
+  publishCase,
+  type DiffResponse,
+  type ReviewVersionRow,
+} from "../api/review";
 import { ApiError } from "../api/http";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -58,6 +66,13 @@ const state = reactive({
   batching: false,
   conflict: null as string | null,
   groupBy: "" as "" | "priority" | "requirementTitle",
+  myRole: "" as string,
+  reviewCase: null as CaseRow | null,
+  reviewDiff: null as DiffResponse | null,
+  reviewBasis: "",
+  reviewLoading: false,
+  reviewVersions: [] as ReviewVersionRow[],
+  reviewPublishing: false,
 });
 
 const GROUP_LABELS: Record<string, string> = {
@@ -154,6 +169,16 @@ const columnDefs = ref([
     valueFormatter: (p: { data?: { headerRow?: boolean } }) =>
       p.data?.headerRow ? "" : "编辑步骤",
   },
+  {
+    field: "review",
+    headerName: "审核",
+    width: 100,
+    sortable: false,
+    filter: false,
+    editable: false,
+    valueFormatter: (p: { data?: { headerRow?: boolean } }) =>
+      p.data?.headerRow || state.myRole !== "OWNER" ? "" : "审核发布",
+  },
 ]);
 
 const gridOptions: GridOptions = {
@@ -174,8 +199,14 @@ const gridOptions: GridOptions = {
       .filter((id) => Number.isFinite(id));
   },
   onCellClicked: (event) => {
-    if (event.colDef.field === "steps" && !event.data?.headerRow) {
+    if (event.data?.headerRow) {
+      return;
+    }
+    if (event.colDef.field === "steps") {
       expandSteps(event.data as CaseRow);
+    }
+    if (event.colDef.field === "review") {
+      openReview(event.data as CaseRow);
     }
   },
   onCellValueChanged: (event: CellValueChangedEvent) => {
@@ -232,6 +263,59 @@ function expandSteps(row: CaseRow): void {
   state.expanded = row;
   state.steps = row.steps.map((s) => ({ ...s }));
   state.conflict = null;
+}
+
+async function openReview(row: CaseRow): Promise<void> {
+  state.reviewCase = row;
+  state.reviewDiff = null;
+  state.reviewBasis = "";
+  state.reviewVersions = [];
+  state.reviewLoading = true;
+  state.conflict = null;
+  try {
+    state.reviewDiff = await fetchReviewDiff(projectId.value, row.id);
+    state.reviewVersions = await fetchReviewVersions(projectId.value, row.id);
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.reviewLoading = false;
+  }
+}
+
+async function submitPublish(): Promise<void> {
+  if (!state.reviewCase) {
+    return;
+  }
+  state.reviewPublishing = true;
+  state.conflict = null;
+  try {
+    const result = await publishCase(projectId.value, state.reviewCase.id, {
+      basis: state.reviewBasis,
+      expectedVersion: state.reviewCase.version,
+    });
+    ElMessage.success(`已发布 v${result.version}（READY）`);
+    state.reviewCase = null;
+    await load();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      state.conflict = error.message;
+      ElMessage.error(error.message);
+      await load();
+    } else {
+      ElMessage.error(error instanceof Error ? error.message : String(error));
+    }
+  } finally {
+    state.reviewPublishing = false;
+  }
+}
+
+async function loadRole(): Promise<void> {
+  try {
+    const project = await fetchProject(projectId.value);
+    state.myRole = project.myRole;
+  } catch {
+    state.myRole = "";
+  }
 }
 
 function addStep(): void {
@@ -310,10 +394,15 @@ async function runBatchUpdate(): Promise<void> {
   }
 }
 
-onMounted(load);
+onMounted(() => {
+  load();
+  loadRole();
+});
 watch(projectId, () => {
   state.expanded = null;
+  state.reviewCase = null;
   load();
+  loadRole();
 });
 onBeforeUnmount(() => {
   gridApi.value?.destroy();
@@ -448,6 +537,113 @@ onBeforeUnmount(() => {
         </el-button>
       </div>
     </div>
+
+    <div
+      v-if="state.reviewCase"
+      class="review-panel"
+      data-testid="review-panel"
+    >
+      <div class="panel-title">
+        <span>审核发布 — {{ state.reviewCase.title }}</span>
+        <el-button size="small" @click="state.reviewCase = null"
+          >收起</el-button
+        >
+      </div>
+
+      <div v-loading="state.reviewLoading">
+        <h5 class="section-title">草稿与上一发布版本对比</h5>
+        <div
+          v-if="state.reviewDiff"
+          class="diff-grid"
+          data-testid="review-diff"
+        >
+          <div class="diff-side">
+            <strong
+              >上一发布版本（{{
+                state.reviewDiff.previousStatus === "NONE" ? "无" : "READY"
+              }}）</strong
+            >
+            <div v-if="state.reviewDiff.previous">
+              <div>标题：{{ state.reviewDiff.previous.title }}</div>
+              <div>
+                优先级：{{
+                  PRIORITY_LABELS[state.reviewDiff.previous.priority]
+                }}
+              </div>
+              <div>步骤数：{{ state.reviewDiff.previous.steps.length }}</div>
+              <ol class="diff-steps">
+                <li
+                  v-for="s in state.reviewDiff.previous.steps"
+                  :key="s.stepOrder"
+                >
+                  {{ s.action }} → {{ s.expected }}
+                </li>
+              </ol>
+            </div>
+            <div v-else>尚未发布过。</div>
+          </div>
+          <div class="diff-side">
+            <strong>当前草稿</strong>
+            <div>标题：{{ state.reviewDiff?.current.title }}</div>
+            <div>
+              优先级：{{
+                PRIORITY_LABELS[state.reviewDiff?.current.priority ?? "MEDIUM"]
+              }}
+            </div>
+            <div>步骤数：{{ state.reviewDiff?.current.steps.length }}</div>
+            <ol class="diff-steps">
+              <li
+                v-for="s in state.reviewDiff?.current.steps ?? []"
+                :key="s.stepOrder"
+              >
+                {{ s.action }} → {{ s.expected }}
+              </li>
+            </ol>
+          </div>
+        </div>
+
+        <h5 class="section-title">发布历史</h5>
+        <el-table
+          :data="state.reviewVersions"
+          size="small"
+          data-testid="review-versions-table"
+        >
+          <el-table-column label="版本" width="70">
+            <template #default="{ row }">v{{ row.version }}</template>
+          </el-table-column>
+          <el-table-column prop="status" label="状态" width="90" />
+          <el-table-column prop="publishedBy" label="审核人" width="90" />
+          <el-table-column prop="publishedAt" label="审核时间" width="180" />
+          <el-table-column prop="publishBasis" label="发布依据" />
+        </el-table>
+
+        <div
+          v-if="state.myRole === 'OWNER'"
+          class="publish-box"
+          data-testid="publish-box"
+        >
+          <el-input
+            v-model="state.reviewBasis"
+            placeholder="发布依据（必填，说明本次审核结论）"
+            data-testid="publish-basis"
+          />
+          <el-button
+            type="primary"
+            :loading="state.reviewPublishing"
+            data-testid="publish-submit"
+            @click="submitPublish"
+          >
+            发布为 READY 版本
+          </el-button>
+        </div>
+        <el-alert
+          v-else
+          type="info"
+          :closable="false"
+          title="仅项目负责人可以发布草稿。"
+        />
+      </div>
+    </div>
   </el-card>
 </template>
 
@@ -487,6 +683,40 @@ onBeforeUnmount(() => {
   border: 1px solid var(--el-border-color-light);
   border-radius: 4px;
   padding: 12px;
+}
+
+.review-panel {
+  margin-top: 16px;
+  border: 1px solid var(--el-border-color-light);
+  border-radius: 4px;
+  padding: 12px;
+}
+
+.section-title {
+  margin: 12px 0 8px;
+}
+
+.diff-grid {
+  display: flex;
+  gap: 16px;
+}
+
+.diff-side {
+  flex: 1;
+  border: 1px dashed var(--el-border-color);
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.diff-steps {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.publish-box {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
 }
 
 .panel-title {
