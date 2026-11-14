@@ -97,3 +97,65 @@ export async function cancelSession(
     `/api/v1/projects/${projectId}/agent/sessions/${sessionId}/cancel`,
   );
 }
+
+export interface DraftCase {
+  id: number;
+  title: string;
+  priority: string;
+  technique: string;
+  suggestion: string;
+  duplicateOfCaseId?: number | null;
+  knowledgeInsufficient: boolean;
+  steps: { action: string; testData?: string; expected: string }[];
+  citations: { documentId: number; version: number; documentTitle?: string }[];
+}
+
+export interface AgentToolCall {
+  id: number;
+  toolName: string;
+  inputSummary: string;
+  outputSummary: string;
+}
+
+export interface DraftBatchDetail {
+  id: number;
+  sessionId: number;
+  status: string;
+  model: string;
+  promptVersion: string;
+  promptTokens: number;
+  completionTokens: number;
+  error: string;
+  cases: DraftCase[];
+  toolCalls: AgentToolCall[];
+  requirementId: number;
+}
+
+export async function generateDraft(
+  projectId: number,
+  sessionId: number,
+): Promise<DraftBatchDetail> {
+  return apiSend<DraftBatchDetail>(
+    "POST",
+    `/api/v1/projects/${projectId}/agent/sessions/${sessionId}/generate-draft`,
+  );
+}
+
+export async function fetchDraft(
+  projectId: number,
+  sessionId: number,
+): Promise<DraftBatchDetail> {
+  return apiGet<DraftBatchDetail>(
+    `/api/v1/projects/${projectId}/agent/sessions/${sessionId}/draft`,
+  );
+}
+
+export async function acceptDraft(
+  projectId: number,
+  sessionId: number,
+): Promise<{ status: string; createdCaseIds: number[] }> {
+  return apiSend<{ status: string; createdCaseIds: number[] }>(
+    "POST",
+    `/api/v1/projects/${projectId}/agent/sessions/${sessionId}/draft/accept`,
+  );
+}

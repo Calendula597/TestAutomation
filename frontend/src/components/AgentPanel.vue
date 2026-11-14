@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { reactive } from "vue";
 import {
+  acceptDraft,
   answerQuestion,
   cancelSession,
   confirmCoverage,
   fetchAgentSession,
+  fetchDraft,
+  generateDraft,
   startAgentSession,
   type AgentSessionDetail,
 } from "../api/agent";
@@ -16,9 +19,12 @@ const state = reactive({
   session: null as AgentSessionDetail | null,
   error: null as string | null,
   loading: false,
+  generating: false,
+  accepting: false,
   answers: {} as Record<number, string>,
   notes: {} as Record<number, string>,
   confirming: false,
+  draft: null as import("../api/agent").DraftBatchDetail | null,
 });
 
 const STATUS_LABELS: Record<string, string> = {
@@ -133,6 +139,42 @@ async function cancel(): Promise<void> {
   if (!state.session) return;
   await cancelSession(props.projectId, state.session.id);
   await load();
+}
+
+async function runGenerate(): Promise<void> {
+  if (!state.session) return;
+  state.generating = true;
+  state.error = null;
+  try {
+    state.draft = await generateDraft(props.projectId, state.session.id);
+  } catch (error) {
+    state.error = error instanceof ApiError ? error.message : String(error);
+  } finally {
+    state.generating = false;
+  }
+}
+
+async function loadDraft(): Promise<void> {
+  if (!state.session) return;
+  try {
+    state.draft = await fetchDraft(props.projectId, state.session.id);
+  } catch {
+    state.draft = null;
+  }
+}
+
+async function runAccept(): Promise<void> {
+  if (!state.session) return;
+  state.accepting = true;
+  state.error = null;
+  try {
+    await acceptDraft(props.projectId, state.session.id);
+    await loadDraft();
+  } catch (error) {
+    state.error = error instanceof ApiError ? error.message : String(error);
+  } finally {
+    state.accepting = false;
+  }
 }
 </script>
 
@@ -268,6 +310,103 @@ async function cancel(): Promise<void> {
       >
         全部确认
       </el-button>
+
+      <div
+        v-if="state.session.status === 'READY_FOR_DRAFT'"
+        class="draft-section"
+        data-testid="draft-section"
+      >
+        <h5 class="section-title">AI 草稿批次</h5>
+        <el-button
+          v-if="!state.draft"
+          type="primary"
+          :loading="state.generating"
+          data-testid="draft-generate"
+          @click="runGenerate"
+        >
+          生成草稿（ReAct）
+        </el-button>
+        <template v-if="state.draft">
+          <el-alert
+            v-if="state.draft.status === 'FAILED'"
+            type="error"
+            :closable="false"
+            show-icon
+            :title="state.draft.error || '生成失败'"
+          />
+          <div v-else class="provenance">
+            模型 {{ state.draft.model }} · 提示词
+            {{ state.draft.promptVersion }} · tokens
+            {{ state.draft.promptTokens }}+{{ state.draft.completionTokens }}
+          </div>
+          <el-card
+            v-for="draftCase in state.draft.cases"
+            :key="draftCase.id"
+            shadow="never"
+            class="draft-case"
+            :data-testid="`draft-case-${draftCase.id}`"
+          >
+            <div class="case-head">
+              <strong>{{ draftCase.title }}</strong>
+              <el-tag size="small">{{ draftCase.priority }}</el-tag>
+              <el-tag v-if="draftCase.technique" size="small" type="info">
+                {{ draftCase.technique }}
+              </el-tag>
+              <el-tag
+                v-if="draftCase.suggestion !== 'NEW'"
+                size="small"
+                type="warning"
+              >
+                {{
+                  draftCase.suggestion === "DUPLICATE" ? "疑似重复" : "建议更新"
+                }}
+              </el-tag>
+              <el-tag
+                v-if="draftCase.knowledgeInsufficient"
+                size="small"
+                type="danger"
+              >
+                知识不足
+              </el-tag>
+            </div>
+            <ol class="draft-steps">
+              <li v-for="(s, i) in draftCase.steps" :key="i">
+                {{ s.action }}
+                <span v-if="s.testData">［{{ s.testData }}］</span>
+                → 预期：{{ s.expected }}
+              </li>
+            </ol>
+            <div class="citations">
+              引用：
+              <span v-for="(c, i) in draftCase.citations" :key="i">
+                {{ c.documentTitle ?? `文档${c.documentId}` }}（v{{
+                  c.version
+                }}）
+              </span>
+            </div>
+          </el-card>
+          <div class="provenance">
+            工具调用：{{
+              state.draft.toolCalls.map((t) => t.toolName).join("、") || "无"
+            }}
+          </div>
+          <el-button
+            v-if="state.draft.status === 'PENDING_REVIEW'"
+            type="primary"
+            :loading="state.accepting"
+            data-testid="draft-accept"
+            @click="runAccept"
+          >
+            接受为网格草稿
+          </el-button>
+          <el-alert
+            v-if="state.draft.status === 'ACCEPTED'"
+            type="success"
+            :closable="false"
+            title="已接受：草稿进入用例网格。"
+          />
+        </template>
+      </div>
     </template>
     <el-empty
       v-else-if="!state.loading && !state.error"
@@ -339,5 +478,38 @@ async function cancel(): Promise<void> {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
+}
+
+.draft-section {
+  margin-top: 16px;
+  border-top: 1px dashed var(--el-border-color);
+  padding-top: 12px;
+}
+
+.draft-case {
+  margin-bottom: 8px;
+}
+
+.case-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.draft-steps {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+
+.citations {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+
+.provenance {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  margin: 8px 0;
 }
 </style>
