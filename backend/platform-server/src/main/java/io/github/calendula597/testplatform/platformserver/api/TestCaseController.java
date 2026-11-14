@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -42,30 +43,36 @@ public class TestCaseController {
     private static final Set<String> PRIORITIES =
             Set.of(TestCase.PRIORITY_HIGH, TestCase.PRIORITY_MEDIUM, TestCase.PRIORITY_LOW);
 
+    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API");
+
     private final ProjectAccessService access;
     private final TestCaseMapper testCaseMapper;
     private final TestCaseStepMapper stepMapper;
     private final RequirementMapper requirementMapper;
+    private final ObjectMapper objectMapper;
     private final AuditService auditService;
 
     public TestCaseController(ProjectAccessService access, TestCaseMapper testCaseMapper,
                               TestCaseStepMapper stepMapper, RequirementMapper requirementMapper,
-                              AuditService auditService) {
+                              ObjectMapper objectMapper, AuditService auditService) {
         this.access = access;
         this.testCaseMapper = testCaseMapper;
         this.stepMapper = stepMapper;
         this.requirementMapper = requirementMapper;
+        this.objectMapper = objectMapper;
         this.auditService = auditService;
     }
 
     public record StepInput(Integer stepOrder, String action, String testData, String expected) {
     }
 
-    public record CreateRequest(String title, String priority, Long requirementId, List<StepInput> steps) {
+    public record CreateRequest(String title, String priority, Long requirementId, List<StepInput> steps,
+                                String caseType, Map<String, Object> execution) {
     }
 
     public record UpdateRequest(String title, String priority, Long requirementId,
-                                Integer expectedVersion, List<StepInput> steps) {
+                                Integer expectedVersion, List<StepInput> steps,
+                                Map<String, Object> execution) {
     }
 
     public record BatchUpdateRequest(List<Long> ids, Map<String, String> fields, Integer expectedVersion) {
@@ -75,7 +82,8 @@ public class TestCaseController {
     }
 
     public record CaseView(Long id, String title, String priority, String status, int version,
-                           Long requirementId, String requirementTitle, List<StepView> steps) {
+                           Long requirementId, String requirementTitle, List<StepView> steps,
+                           String caseType, Object execution) {
     }
 
     public record BatchResultRow(Long id, int status, String message, Integer newVersion) {
@@ -91,12 +99,26 @@ public class TestCaseController {
         if (validation != null) {
             return validation;
         }
+        String caseType = body.caseType() == null ? "MANUAL" : body.caseType();
+        if (!CASE_TYPES.contains(caseType)) {
+            return badRequest("用例类型必须是 MANUAL 或 API");
+        }
+        String executionJson = null;
+        if (body.execution() != null) {
+            ResponseEntity<?> executionValidation = validateExecution(body.execution());
+            if (executionValidation != null) {
+                return executionValidation;
+            }
+            executionJson = objectMapper.writeValueAsString(body.execution());
+        }
 
         TestCase testCase = new TestCase();
         testCase.setProjectId(projectId);
         testCase.setTitle(body.title().trim());
         testCase.setPriority(body.priority() == null ? TestCase.PRIORITY_MEDIUM : body.priority());
         testCase.setStatus(TestCase.STATUS_DRAFT);
+        testCase.setCaseType(caseType);
+        testCase.setExecutionJson(executionJson);
         testCase.setVersion(1);
         testCase.setRequirementId(requirementIdOf(projectId, body.requirementId()));
         testCase.setCreatedBy(principal.id());
@@ -104,7 +126,7 @@ public class TestCaseController {
         replaceSteps(testCase.getId(), body.steps());
 
         auditService.record(authentication, "TESTCASE_CREATED", null,
-                Map.of("projectId", projectId, "testCaseId", testCase.getId()));
+                Map.of("projectId", projectId, "testCaseId", testCase.getId(), "caseType", caseType));
         return ResponseEntity.status(HttpStatus.CREATED).body(viewOf(testCase));
     }
 
@@ -147,6 +169,13 @@ public class TestCaseController {
         testCase.setTitle(body.title().trim());
         testCase.setPriority(body.priority() == null ? testCase.getPriority() : body.priority());
         testCase.setRequirementId(requirementIdOf(projectId, body.requirementId()));
+        if (body.execution() != null) {
+            ResponseEntity<?> executionValidation = validateExecution(body.execution());
+            if (executionValidation != null) {
+                return executionValidation;
+            }
+            testCase.setExecutionJson(objectMapper.writeValueAsString(body.execution()));
+        }
         int updated = testCaseMapper.updateById(testCase);
         if (updated == 0) {
             return conflict(testCase.getVersion());
@@ -246,6 +275,23 @@ public class TestCaseController {
         }
     }
 
+    /** Execution schemas must at least carry a request with method and URL. */
+    private ResponseEntity<?> validateExecution(Map<String, Object> execution) {
+        Object request = execution.get("request");
+        if (!(request instanceof Map<?, ?> requestMap)
+                || ((Map<?, ?>) requestMap).get("method") == null
+                || String.valueOf(((Map<?, ?>) requestMap).get("method")).isBlank()
+                || ((Map<?, ?>) requestMap).get("url") == null
+                || String.valueOf(((Map<?, ?>) requestMap).get("url")).isBlank()) {
+            return badRequest("API 执行配置必须包含 request.method 与 request.url");
+        }
+        Object assertions = execution.get("assertions");
+        if (assertions != null && !(assertions instanceof List<?>)) {
+            return badRequest("断言必须是数组");
+        }
+        return null;
+    }
+
     private CaseView viewOf(TestCase testCase) {
         List<StepView> steps = stepMapper.selectList(new LambdaQueryWrapper<TestCaseStep>()
                         .eq(TestCaseStep::getCaseId, testCase.getId())
@@ -258,9 +304,17 @@ public class TestCaseController {
             Requirement requirement = requirementMapper.selectById(testCase.getRequirementId());
             requirementTitle = requirement == null ? null : requirement.getTitle();
         }
+        Object execution = null;
+        if (testCase.getExecutionJson() != null) {
+            try {
+                execution = objectMapper.readValue(testCase.getExecutionJson(), Object.class);
+            } catch (Exception e) {
+                execution = null;
+            }
+        }
         return new CaseView(testCase.getId(), testCase.getTitle(), testCase.getPriority(),
                 testCase.getStatus(), testCase.getVersion(), testCase.getRequirementId(),
-                requirementTitle, steps);
+                requirementTitle, steps, testCase.getCaseType(), execution);
     }
 
     private ResponseEntity<?> validate(String title, String priority) {

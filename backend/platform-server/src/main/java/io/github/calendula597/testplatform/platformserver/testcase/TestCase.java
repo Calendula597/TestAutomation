@@ -33,6 +33,12 @@ public class TestCase {
 
     private String status;
 
+    /** MANUAL or API; selects the executor for published versions. */
+    private String caseType;
+
+    /** Working draft of the type-specific execution schema (JSON). */
+    private String executionJson;
+
     @Version
     private Integer version;
 
@@ -88,6 +94,22 @@ public class TestCase {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getCaseType() {
+        return caseType;
+    }
+
+    public void setCaseType(String caseType) {
+        this.caseType = caseType;
+    }
+
+    public String getExecutionJson() {
+        return executionJson;
+    }
+
+    public void setExecutionJson(String executionJson) {
+        this.executionJson = executionJson;
     }
 
     public Integer getVersion() {

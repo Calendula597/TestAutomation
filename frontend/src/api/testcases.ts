@@ -16,6 +16,8 @@ export interface CaseRow {
   requirementId?: number | null;
   requirementTitle?: string | null;
   steps: StepRow[];
+  /** MANUAL or API; API cases carry an executable schema. */
+  caseType?: "MANUAL" | "API";
 }
 
 export interface BatchResultRow {

@@ -1,0 +1,223 @@
+import { flushPromises, mount } from "@vue/test-utils";
+import ElementPlus from "element-plus";
+import { defineComponent, h } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ExecutionsView from "../src/views/ExecutionsView.vue";
+
+const EmptyPage = defineComponent({ render: () => h("div") });
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), { status });
+}
+
+const EXECUTIONS = [
+  {
+    id: 11,
+    jobType: "API",
+    status: "PASSED",
+    caseVersionId: 5,
+    environmentId: 3,
+    createdAt: "2026-11-14T10:00:00Z",
+  },
+  {
+    id: 12,
+    jobType: "API",
+    status: "ASSERTION_FAILED",
+    caseVersionId: 6,
+    environmentId: 3,
+    createdAt: "2026-11-14T10:05:00Z",
+  },
+];
+
+const DETAIL = {
+  id: 11,
+  jobType: "API",
+  status: "PASSED",
+  caseVersionId: 5,
+  environmentId: 3,
+  createdAt: "2026-11-14T10:00:00Z",
+  attempts: [
+    {
+      attemptNumber: 1,
+      status: "PASSED",
+      startedAt: "2026-11-14T10:00:01Z",
+      finishedAt: "2026-11-14T10:00:02Z",
+      result: {
+        status: "PASSED",
+        request: {
+          method: "POST",
+          url: "http://127.0.0.1:8000/echo",
+          headers: { Authorization: "******", Accept: "application/json" },
+        },
+        response: {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json" },
+          body: '{"code":"OK","headers":{"Authorization":"******"}}',
+          bodyTruncated: false,
+        },
+        assertions: [
+          { type: "STATUS", expected: "200", actual: "200", passed: true },
+          {
+            type: "JSONPATH",
+            path: "$.code",
+            expected: "OK",
+            actual: "OK",
+            passed: true,
+          },
+        ],
+        durationMs: 42,
+        redirects: [],
+      },
+    },
+  ],
+};
+
+function mountView(): Promise<ReturnType<typeof mount>> {
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      {
+        path: "/projects/:id/executions",
+        name: "executions",
+        component: ExecutionsView,
+      },
+      { path: "/projects/:id", name: "project-detail", component: EmptyPage },
+    ],
+  });
+  router.push("/projects/1/executions");
+  return router.isReady().then(() =>
+    mount(ExecutionsView, {
+      global: { plugins: [ElementPlus, router] },
+    }),
+  );
+}
+
+describe("ExecutionsView", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    document.cookie = "XSRF-TOKEN=test-csrf-token";
+  });
+
+  function baseMock(): ReturnType<typeof vi.fn> {
+    return vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(jsonResponse(EXECUTIONS));
+      }
+      if (url.endsWith("/api/v1/projects/1/testcases")) {
+        return Promise.resolve(
+          jsonResponse([
+            { id: 2, title: "登录成功", status: "READY", caseType: "API" },
+          ]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/environments")) {
+        return Promise.resolve(
+          jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+  }
+
+  it("renders execution records with per-class statuses", async () => {
+    vi.stubGlobal("fetch", baseMock());
+
+    const wrapper = await mountView();
+    await flushPromises();
+
+    const table = wrapper.find('[data-testid="executions-table"]').text();
+    expect(table).toContain("通过");
+    expect(table).toContain("断言失败");
+    // Assertion failures and infrastructure errors are distinct labels.
+    expect(table).not.toContain("执行错误");
+  });
+
+  it("triggers an execution for a case against a chosen environment", async () => {
+    const fetchMock = baseMock();
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/v1/projects/1/executions") &&
+          init?.method === "POST"
+        ) {
+          return Promise.resolve(
+            jsonResponse({ jobId: 13, status: "QUEUED" }, 202),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/executions")) {
+          return Promise.resolve(jsonResponse(EXECUTIONS));
+        }
+        if (url.endsWith("/api/v1/projects/1/testcases")) {
+          return Promise.resolve(
+            jsonResponse([
+              { id: 2, title: "登录成功", status: "READY", caseType: "API" },
+            ]),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/environments")) {
+          return Promise.resolve(
+            jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+
+    // Pick like a user would: click the case button, then the environment
+    // button, then submit.
+    await wrapper.find('[data-testid="exec-case-2"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-env-3"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-trigger"]').trigger("click");
+    await flushPromises();
+
+    const sent = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).endsWith("/api/v1/projects/1/executions") &&
+        init?.method === "POST",
+    ) as [RequestInfo, RequestInit] | undefined;
+    expect(sent).toBeTruthy();
+    expect(JSON.parse(String(sent![1]?.body))).toEqual({
+      caseId: 2,
+      environmentId: 3,
+    });
+    expect(wrapper.text()).toContain("执行任务已提交");
+  });
+
+  it("shows masked request artifacts and per-assertion outcomes", async () => {
+    const fetchMock = baseMock();
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/11")) {
+        return Promise.resolve(jsonResponse(DETAIL));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(jsonResponse(EXECUTIONS));
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="exec-open-11"]').trigger("click");
+    await flushPromises();
+
+    const result = wrapper.find('[data-testid="exec-detail"]').text();
+    // The masked credential is visible; no plaintext value exists anywhere.
+    expect(result).toContain("******");
+    expect(result).toContain("POST");
+    expect(result).toContain("STATUS");
+    expect(result).toContain("$.code");
+    // Every stored assertion reports its outcome explicitly.
+    expect(result).toContain("通过");
+    expect(wrapper.text()).not.toContain("sk-live-secret");
+  });
+});

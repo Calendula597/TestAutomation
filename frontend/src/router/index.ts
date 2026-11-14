@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 import { fetchMe, fetchSystemStatus } from "../api/auth";
 import { session } from "../stores/session";
 import EnvironmentsView from "../views/EnvironmentsView.vue";
+import ExecutionsView from "../views/ExecutionsView.vue";
 import HealthView from "../views/HealthView.vue";
 import InitializeView from "../views/InitializeView.vue";
 import KnowledgeView from "../views/KnowledgeView.vue";
@@ -92,6 +93,12 @@ const router = createRouter({
       name: "environments",
       component: EnvironmentsView,
       meta: { title: "环境配置" },
+    },
+    {
+      path: "/projects/:id/executions",
+      name: "executions",
+      component: ExecutionsView,
+      meta: { title: "执行记录" },
     },
     {
       path: "/projects/:id/plans/:planId/runs/:runId",

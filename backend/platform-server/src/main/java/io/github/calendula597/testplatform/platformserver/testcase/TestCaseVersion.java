@@ -33,6 +33,12 @@ public class TestCaseVersion {
 
     private String status;
 
+    /** MANUAL or API; immutable per published version. */
+    private String caseType;
+
+    /** Immutable snapshot of the type-specific execution schema (JSON). */
+    private String executionJson;
+
     private String stepsJson;
 
     private Long createdBy;
@@ -101,6 +107,22 @@ public class TestCaseVersion {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getCaseType() {
+        return caseType;
+    }
+
+    public void setCaseType(String caseType) {
+        this.caseType = caseType;
+    }
+
+    public String getExecutionJson() {
+        return executionJson;
+    }
+
+    public void setExecutionJson(String executionJson) {
+        this.executionJson = executionJson;
     }
 
     public String getStepsJson() {

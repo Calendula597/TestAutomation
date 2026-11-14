@@ -47,6 +47,7 @@ public class JobQueueService {
     private final int defaultLeaseSeconds;
     private final int offlineAfterSeconds;
     private final int diagnosticTimeoutSeconds;
+    private final int apiTimeoutSeconds;
 
     public JobQueueService(WorkerMapper workerMapper, ExecutionJobMapper jobMapper,
                            ExecutionAttemptMapper attemptMapper, WorkerDiagnosticMapper diagnosticMapper,
@@ -54,7 +55,8 @@ public class JobQueueService {
                            JdbcTemplate jdbcTemplate,
                            @Value("${app.worker.lease-seconds:30}") int defaultLeaseSeconds,
                            @Value("${app.worker.offline-after-seconds:90}") int offlineAfterSeconds,
-                           @Value("${app.worker.diagnostic-timeout-seconds:120}") int diagnosticTimeoutSeconds) {
+                           @Value("${app.worker.diagnostic-timeout-seconds:120}") int diagnosticTimeoutSeconds,
+                           @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds) {
         this.workerMapper = workerMapper;
         this.jobMapper = jobMapper;
         this.attemptMapper = attemptMapper;
@@ -65,6 +67,7 @@ public class JobQueueService {
         this.defaultLeaseSeconds = defaultLeaseSeconds;
         this.offlineAfterSeconds = offlineAfterSeconds;
         this.diagnosticTimeoutSeconds = diagnosticTimeoutSeconds;
+        this.apiTimeoutSeconds = apiTimeoutSeconds;
     }
 
     public Set<String> allowedCapabilities() {
@@ -135,6 +138,26 @@ public class JobQueueService {
         job.setRequeueOnLost(true);
         job.setLeaseSeconds(leaseSeconds == null ? defaultLeaseSeconds : leaseSeconds);
         job.setTimeoutSeconds(timeoutSeconds == null ? diagnosticTimeoutSeconds : timeoutSeconds);
+        jobMapper.insert(job);
+        return job;
+    }
+
+    /**
+     * Real execution jobs are never requeued automatically: a request may
+     * have had external side effects before a lease was lost, so recovery
+     * waits for a user-triggered retry instead.
+     */
+    @Transactional
+    public ExecutionJob enqueueApiExecution(Long projectId, Map<String, Object> payload, Long createdBy) {
+        ExecutionJob job = new ExecutionJob();
+        job.setJobType("API");
+        job.setProjectId(projectId);
+        job.setPayload(writeJson(payload));
+        job.setStatus(ExecutionJob.STATUS_QUEUED);
+        job.setRequeueOnLost(false);
+        job.setLeaseSeconds(defaultLeaseSeconds);
+        job.setTimeoutSeconds(apiTimeoutSeconds);
+        job.setCreatedBy(createdBy);
         jobMapper.insert(job);
         return job;
     }

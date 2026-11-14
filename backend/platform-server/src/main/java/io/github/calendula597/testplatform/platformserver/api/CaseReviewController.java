@@ -137,6 +137,8 @@ public class CaseReviewController {
         snapshot.setPriority(draft.getPriority());
         snapshot.setRequirementId(draft.getRequirementId());
         snapshot.setStatus(TestCaseVersion.STATUS_READY);
+        snapshot.setCaseType(draft.getCaseType() == null ? "MANUAL" : draft.getCaseType());
+        snapshot.setExecutionJson(draft.getExecutionJson());
         snapshot.setStepsJson(writeSteps(steps));
         snapshot.setCreatedBy(draft.getCreatedBy());
         snapshot.setPublishedBy(principal.id());

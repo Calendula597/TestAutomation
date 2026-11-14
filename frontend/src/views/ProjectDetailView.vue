@@ -122,6 +122,11 @@ watch(projectId, load);
             >环境配置</router-link
           >
           <router-link
+            :to="`/projects/${projectId}/executions`"
+            class="entry-link"
+            >执行记录</router-link
+          >
+          <router-link
             :to="`/projects/${projectId}/coverage`"
             class="entry-link"
             >覆盖矩阵</router-link
