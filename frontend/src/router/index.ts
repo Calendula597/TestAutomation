@@ -3,6 +3,7 @@ import { fetchMe, fetchSystemStatus } from "../api/auth";
 import { session } from "../stores/session";
 import HealthView from "../views/HealthView.vue";
 import InitializeView from "../views/InitializeView.vue";
+import KnowledgeView from "../views/KnowledgeView.vue";
 import LoginView from "../views/LoginView.vue";
 import ManualPlansView from "../views/ManualPlansView.vue";
 import ManualRunView from "../views/ManualRunView.vue";
@@ -82,6 +83,12 @@ const router = createRouter({
       name: "plan-run",
       component: ManualRunView,
       meta: { title: "执行运行" },
+    },
+    {
+      path: "/knowledge",
+      name: "knowledge",
+      component: KnowledgeView,
+      meta: { title: "知识库" },
     },
   ],
 });
