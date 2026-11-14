@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { fetchMe, fetchSystemStatus } from "../api/auth";
 import { session } from "../stores/session";
+import EnvironmentsView from "../views/EnvironmentsView.vue";
 import HealthView from "../views/HealthView.vue";
 import InitializeView from "../views/InitializeView.vue";
 import KnowledgeView from "../views/KnowledgeView.vue";
@@ -78,6 +79,12 @@ const router = createRouter({
       name: "plans",
       component: ManualPlansView,
       meta: { title: "测试计划" },
+    },
+    {
+      path: "/projects/:id/environments",
+      name: "environments",
+      component: EnvironmentsView,
+      meta: { title: "环境配置" },
     },
     {
       path: "/projects/:id/plans/:planId/runs/:runId",

@@ -43,6 +43,11 @@ app:
     model: ${APP_EMBEDDING_MODEL:}
   agent:
     max-sessions-per-project: 5
+  secrets:
+    # AES-256-GCM master key for environment secrets (base64, 32 bytes);
+    # injected via APP_SECRETS_MASTER_KEY, never committed. Without a key,
+    # secret writes fail explicitly instead of storing plaintext.
+    master-key: ${APP_SECRETS_MASTER_KEY:}
 
 logging:
   level:

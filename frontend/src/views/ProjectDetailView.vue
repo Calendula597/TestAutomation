@@ -117,6 +117,11 @@ watch(projectId, load);
             >测试计划</router-link
           >
           <router-link
+            :to="`/projects/${projectId}/environments`"
+            class="entry-link"
+            >环境配置</router-link
+          >
+          <router-link
             :to="`/projects/${projectId}/coverage`"
             class="entry-link"
             >覆盖矩阵</router-link
