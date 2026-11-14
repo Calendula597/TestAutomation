@@ -13,6 +13,7 @@ import RequirementDetailView from "../views/RequirementDetailView.vue";
 import RequirementsView from "../views/RequirementsView.vue";
 import TestcasesView from "../views/TestcasesView.vue";
 import UsersView from "../views/UsersView.vue";
+import CoverageView from "../views/CoverageView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -89,6 +90,12 @@ const router = createRouter({
       name: "knowledge",
       component: KnowledgeView,
       meta: { title: "知识库" },
+    },
+    {
+      path: "/projects/:id/coverage",
+      name: "coverage",
+      component: CoverageView,
+      meta: { title: "覆盖矩阵" },
     },
   ],
 });
