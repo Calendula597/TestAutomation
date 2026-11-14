@@ -27,6 +27,9 @@ async function doLogout(): Promise<void> {
         <router-link to="/knowledge">知识库</router-link>
         <router-link to="/health">系统健康</router-link>
         <router-link v-if="session.isAdmin" to="/users">用户管理</router-link>
+        <router-link v-if="session.isAdmin" to="/workers"
+          >Worker 管理</router-link
+        >
       </nav>
       <div class="spacer" />
       <template v-if="authed">

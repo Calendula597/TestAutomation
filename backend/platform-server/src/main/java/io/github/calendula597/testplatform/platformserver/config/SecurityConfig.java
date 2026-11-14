@@ -48,7 +48,10 @@ public class SecurityConfig {
         http
                 // Official Spring Security 7 SPA shortcut: cookie repository +
                 // raw-token resolution + refresh handling in one call.
-                .csrf(csrf -> csrf.spa())
+                .csrf(csrf -> csrf.spa()
+                        // Worker protocol authenticates with scoped bearer
+                        // credentials, not browser sessions or CSRF tokens.
+                        .ignoringRequestMatchers("/api/v1/worker/**"))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/error",
@@ -59,6 +62,10 @@ public class SecurityConfig {
                                 "/api/v1/auth/csrf")
                         .permitAll()
                         .requestMatchers("/api/v1/system/users/**").hasRole("ADMIN")
+                        // The bearer credential is validated inside the
+                        // protocol controller on every request; no session
+                        // authentication applies to this surface.
+                        .requestMatchers("/api/v1/worker/**").permitAll()
                         .anyRequest().authenticated())
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((request, response, ex) ->

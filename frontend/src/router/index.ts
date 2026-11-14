@@ -14,6 +14,7 @@ import RequirementDetailView from "../views/RequirementDetailView.vue";
 import RequirementsView from "../views/RequirementsView.vue";
 import TestcasesView from "../views/TestcasesView.vue";
 import UsersView from "../views/UsersView.vue";
+import WorkersView from "../views/WorkersView.vue";
 import CoverageView from "../views/CoverageView.vue";
 
 const router = createRouter({
@@ -43,6 +44,12 @@ const router = createRouter({
       name: "users",
       component: UsersView,
       meta: { title: "用户管理", adminOnly: true },
+    },
+    {
+      path: "/workers",
+      name: "workers",
+      component: WorkersView,
+      meta: { title: "Worker 管理", adminOnly: true },
     },
     {
       path: "/projects",
