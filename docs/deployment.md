@@ -73,7 +73,22 @@ npm start
 
 当前验收应用是仓库内演示 Electron 应用。渲染器只能通过受控 IPC 保存笔记，主进程只暴露 `getSavedNotes` 测试钩子；这是实验性能力，不支持原生系统对话框，也不接受任意 JavaScript 或任意应用路径。
 
-## 5. 统一检查
+## 5. 启动 WinCore 执行环境（Windows 10+）
+
+在 Windows 主机执行以下命令安装 Appium 4、WinCore 和固定 Node 24，然后启动 Appium 服务：
+
+```bash
+cd workers/appium
+export APPIUM_HOME=当前工作区/workers/appium/.appium
+npm ci
+npm start
+```
+
+服务默认监听 `127.0.0.1:4723`。主 Worker 使用 `APP_WORKER_APPIUM_BASE_URL` 指向该服务，并通过 `APPIUM_HOME` 读取 WinCore 的真实版本。演示 WinForms 应用由系统签名的 PowerShell 宿主启动，可用 `APP_WORKER_WINDOWS_DEMO_SCRIPT` 指定脚本绝对路径；`APP_WORKER_POWERSHELL_PATH` 可覆盖宿主路径。
+
+WinCore 直接操作 Windows UI Automation，不使用已弃用的 Windows Driver/WinAppDriver。报告记录应用类型、WinCore 版本、步骤失败原因和截图。原生 Windows 验收只在 Windows 主机运行，Linux CI 不会将其标记为已验证。
+
+## 6. 统一检查
 
 ```bash
 mvn -B verify          # backend/：单元 + 集成测试（真实 PostgreSQL、Chromium 和 Electron）

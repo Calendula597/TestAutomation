@@ -8,6 +8,7 @@
 backend/          Java 21 + Spring Boot（Maven 多模块，控制面与主 Worker）
 frontend/         Vue 3 + TypeScript + Element Plus（中文管理界面）
 workers/electron/ 独立 Node.js + Playwright Electron Worker 与演示应用
+workers/appium/   Appium 4 + WinCore 原生 Windows 执行环境与演示应用
 deploy/           Docker Compose（PostgreSQL + pgvector）
 docs/             部署文档、ADR、Agent 协作约定
 ```
@@ -27,6 +28,9 @@ npm run check                      # 在 frontend/ 下执行
 
 # Electron Worker（Worker 与演示应用语法检查；行为由后端集成测试覆盖）
 npm run check                      # 在 workers/electron/ 下执行
+
+# Appium Worker（Appium 版本与 WinCore 安装检查）
+npm run check                      # 在 workers/appium/ 下执行
 ```
 
-三部分检查同样在 GitHub Actions CI 中执行（`.github/workflows/ci.yml`）。
+各部分检查均在 GitHub Actions CI 中执行；原生 Windows 验收使用独立 Windows 作业。

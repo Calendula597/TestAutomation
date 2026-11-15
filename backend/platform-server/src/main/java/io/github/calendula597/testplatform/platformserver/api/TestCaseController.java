@@ -43,7 +43,7 @@ public class TestCaseController {
     private static final Set<String> PRIORITIES =
             Set.of(TestCase.PRIORITY_HIGH, TestCase.PRIORITY_MEDIUM, TestCase.PRIORITY_LOW);
 
-    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API", "WEB", "ELECTRON");
+    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API", "WEB", "ELECTRON", "WINDOWS_NATIVE");
 
     private final ProjectAccessService access;
     private final TestCaseMapper testCaseMapper;
@@ -101,7 +101,7 @@ public class TestCaseController {
         }
         String caseType = body.caseType() == null ? "MANUAL" : body.caseType();
         if (!CASE_TYPES.contains(caseType)) {
-            return badRequest("用例类型必须是 MANUAL、API、WEB 或 ELECTRON");
+            return badRequest("用例类型必须是 MANUAL、API、WEB、ELECTRON 或 WINDOWS_NATIVE");
         }
         String executionJson = null;
         if (body.execution() != null) {
@@ -276,6 +276,9 @@ public class TestCaseController {
     }
 
     private ResponseEntity<?> validateExecution(String caseType, Map<String, Object> execution) {
+        if ("WINDOWS_NATIVE".equals(caseType)) {
+            return validateWindowsNativeExecution(execution);
+        }
         if ("ELECTRON".equals(caseType)) {
             return validateElectronExecution(execution);
         }
@@ -283,7 +286,7 @@ public class TestCaseController {
             return validateWebExecution(execution);
         }
         if (!"API".equals(caseType)) {
-            return badRequest("只有 API、WEB 或 ELECTRON 用例可以携带执行配置");
+            return badRequest("只有 API、WEB、ELECTRON 或 WINDOWS_NATIVE 用例可以携带执行配置");
         }
         Object request = execution.get("request");
         Object requests = execution.get("requests");
@@ -312,6 +315,30 @@ public class TestCaseController {
         Object assertions = execution.get("assertions");
         if (assertions != null && !(assertions instanceof List<?>)) {
             return badRequest("断言必须是数组");
+        }
+        return null;
+    }
+
+    private ResponseEntity<?> validateWindowsNativeExecution(Map<String, Object> execution) {
+        if (!"demo-winforms".equals(execution.get("app"))) {
+            return badRequest("原生 Windows 执行必须显式选择 demo-winforms 应用");
+        }
+        if (!(execution.get("steps") instanceof List<?> steps) || steps.isEmpty()) {
+            return badRequest("原生 Windows 执行配置必须包含至少一个步骤");
+        }
+        Set<String> actions = Set.of("FILL", "CLICK", "ASSERT_TEXT", "WAIT");
+        for (Object item : steps) {
+            if (!(item instanceof Map<?, ?> step)) {
+                return badRequest("每个原生 Windows 步骤必须是对象");
+            }
+            String action = String.valueOf(step.get("action")).toUpperCase();
+            if (!actions.contains(action)) {
+                return badRequest("不支持的原生 Windows 步骤类型: " + action);
+            }
+            if (!"WAIT".equals(action)
+                    && (step.get("selector") == null || String.valueOf(step.get("selector")).isBlank())) {
+                return badRequest(action + " 步骤必须提供 selector");
+            }
         }
         return null;
     }

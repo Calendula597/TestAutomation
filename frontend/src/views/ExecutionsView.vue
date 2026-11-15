@@ -63,7 +63,8 @@ async function load(): Promise<void> {
       (testCase) =>
         (testCase.caseType === "API" ||
           testCase.caseType === "WEB" ||
-          testCase.caseType === "ELECTRON") &&
+          testCase.caseType === "ELECTRON" ||
+          testCase.caseType === "WINDOWS_NATIVE") &&
         testCase.status === "READY",
     );
     state.environments = environments;
@@ -139,7 +140,7 @@ watch(projectId, load);
 
     <h4>发起执行</h4>
     <el-form inline @submit.prevent="submitTrigger">
-      <el-form-item label="API / Web / Electron 用例">
+      <el-form-item label="API / Web / Electron / Windows 用例">
         <el-radio-group v-model="state.selectedCaseId">
           <el-radio-button
             v-for="testCase in state.apiCases"
@@ -236,6 +237,18 @@ watch(projectId, load);
             STATUS_LABELS[state.detail.status] ?? state.detail.status
           }}）
         </h3>
+        <p
+          v-if="
+            state.detail.jobType === 'WINDOWS_NATIVE' &&
+            state.detail.attempts[0]?.result
+          "
+          class="driver-line"
+          data-testid="native-driver"
+        >
+          应用类型：{{ state.detail.attempts[0].result.appType }} · 驱动：
+          {{ state.detail.attempts[0].result.driverName }}
+          {{ state.detail.attempts[0].result.driverVersion }}
+        </p>
         <el-alert
           v-if="state.detail.jobType === 'ELECTRON'"
           type="warning"

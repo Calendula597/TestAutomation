@@ -50,6 +50,7 @@ public class JobQueueService {
     private final int apiTimeoutSeconds;
     private final int webTimeoutSeconds;
     private final int electronTimeoutSeconds;
+    private final int windowsNativeTimeoutSeconds;
 
     public JobQueueService(WorkerMapper workerMapper, ExecutionJobMapper jobMapper,
                            ExecutionAttemptMapper attemptMapper, WorkerDiagnosticMapper diagnosticMapper,
@@ -60,7 +61,8 @@ public class JobQueueService {
                            @Value("${app.worker.diagnostic-timeout-seconds:120}") int diagnosticTimeoutSeconds,
                            @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds,
                            @Value("${app.execution.web-timeout-seconds:120}") int webTimeoutSeconds,
-                           @Value("${app.execution.electron-timeout-seconds:120}") int electronTimeoutSeconds) {
+                           @Value("${app.execution.electron-timeout-seconds:120}") int electronTimeoutSeconds,
+                           @Value("${app.execution.windows-native-timeout-seconds:120}") int windowsNativeTimeoutSeconds) {
         this.workerMapper = workerMapper;
         this.jobMapper = jobMapper;
         this.attemptMapper = attemptMapper;
@@ -74,6 +76,7 @@ public class JobQueueService {
         this.apiTimeoutSeconds = apiTimeoutSeconds;
         this.webTimeoutSeconds = webTimeoutSeconds;
         this.electronTimeoutSeconds = electronTimeoutSeconds;
+        this.windowsNativeTimeoutSeconds = windowsNativeTimeoutSeconds;
     }
 
     public Set<String> allowedCapabilities() {
@@ -166,6 +169,7 @@ public class JobQueueService {
         int defaultTimeout = switch (jobType) {
             case "WEB" -> webTimeoutSeconds;
             case "ELECTRON" -> electronTimeoutSeconds;
+            case "WINDOWS_NATIVE" -> windowsNativeTimeoutSeconds;
             default -> apiTimeoutSeconds;
         };
         job.setTimeoutSeconds(timeoutSeconds == null ? defaultTimeout : timeoutSeconds);

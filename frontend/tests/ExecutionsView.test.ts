@@ -394,7 +394,7 @@ describe("ExecutionsView", () => {
       caseId: 7,
       environmentId: 3,
     });
-    expect(wrapper.text()).toContain("API / Web / Electron 用例");
+    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
   });
 
   it("renders WEB steps and authorized evidence links", async () => {
@@ -557,7 +557,7 @@ describe("ExecutionsView", () => {
     const wrapper = await mountView();
     await flushPromises();
     expect(wrapper.find('[data-testid="exec-case-9"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("API / Web / Electron 用例");
+    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
 
     await wrapper.find('[data-testid="exec-open-17"]').trigger("click");
     await flushPromises();
@@ -567,5 +567,85 @@ describe("ExecutionsView", () => {
     expect(boundary.text()).toContain("显式测试钩子");
     expect(boundary.text()).toContain("原生系统对话框");
     expect(wrapper.text()).toContain("MAIN_HOOK");
+  });
+
+  it("offers native Windows cases and reports application and driver details", async () => {
+    const nativeDetail = {
+      id: 18,
+      jobType: "WINDOWS_NATIVE",
+      status: "ERROR",
+      caseVersionId: 10,
+      environmentId: 3,
+      createdAt: "2026-11-15T12:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "ERROR",
+          result: {
+            status: "ERROR",
+            reason: "未找到 UI 元素",
+            appType: "WINFORMS",
+            driverName: "Wincore",
+            driverVersion: "4.1.1",
+            steps: [
+              {
+                index: 0,
+                action: "CLICK",
+                selector: "missingButton",
+                status: "ERROR",
+                error: "未找到 UI 元素",
+                durationMs: 5,
+                evidence: [],
+              },
+            ],
+            evidence: [],
+            durationMs: 20,
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/18")) {
+        return Promise.resolve(jsonResponse(nativeDetail));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(
+          jsonResponse([{ ...nativeDetail, attempts: undefined }]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/testcases")) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: 10,
+              title: "WinForms 流程",
+              status: "READY",
+              caseType: "WINDOWS_NATIVE",
+            },
+          ]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/environments")) {
+        return Promise.resolve(
+          jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="exec-case-10"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
+
+    await wrapper.find('[data-testid="exec-open-18"]').trigger("click");
+    await flushPromises();
+    const driver = wrapper.find('[data-testid="native-driver"]');
+    expect(driver.exists()).toBe(true);
+    expect(driver.text()).toContain("WINFORMS");
+    expect(driver.text()).toContain("Wincore 4.1.1");
+    expect(wrapper.text()).toContain("未找到 UI 元素");
   });
 });

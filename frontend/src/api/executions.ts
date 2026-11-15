@@ -99,6 +99,9 @@ export interface ExecutionResult {
   rows?: ChainRowResult[];
   steps?: WebStepResult[];
   evidence?: EvidenceEntry[];
+  appType?: string;
+  driverName?: string;
+  driverVersion?: string;
 }
 
 export interface ExecutionAttempt {

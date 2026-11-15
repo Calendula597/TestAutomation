@@ -16,6 +16,8 @@ Thumbs.db
 
 # Java build output
 target/
+workers/appium/.appium/
+workers/appium/demo/bin/
 
 # Agent tool state
 .mimosa/
