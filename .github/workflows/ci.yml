@@ -83,7 +83,10 @@ jobs:
           $source = Join-Path $env:RUNNER_TEMP "pgvector"
           git clone --depth 1 --branch v0.8.7 https://github.com/pgvector/pgvector.git $source
           if ($LASTEXITCODE) { throw "pgvector clone failed" }
-          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
+          $vcvars = Join-Path $visualStudio "VC\Auxiliary\Build\vcvars64.bat"
+          if (-not (Test-Path $vcvars)) { throw "Visual Studio C++ tools were not found" }
           $command = '"{0}" && cd /d "{1}" && nmake /F Makefile.win && nmake /F Makefile.win install' -f $vcvars, $source
           & cmd.exe /d /s /c $command
           if ($LASTEXITCODE) { throw "pgvector build failed" }

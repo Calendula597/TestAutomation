@@ -114,7 +114,7 @@ npm run check          # workers/electron/：Worker 与演示应用语法检查
 docker pull grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
 ```
 
-也可用 `APP_WORKER_K6_PATH` 指定本地 k6 可执行文件，或用 `APP_WORKER_K6_IMAGE` 覆盖经过审核的镜像。报告保存 k6 原始脚本、控制台输出和 `summary-export`，并据其中的真实计数、错误率及 P90/P95/P99 判定项目阈值。测试本机服务时，容器通过 `host.docker.internal` 访问宿主。
+也可用 `APP_WORKER_K6_PATH` 指定本地 k6 可执行文件，或用 `APP_WORKER_K6_IMAGE` 覆盖经过审核的镜像。Linux 下按宿主机 UID/GID 运行容器并设置 `HOME=/tmp`，不提升为 root，确保能写入本次执行专属证据目录。报告保存 k6 原始脚本、控制台输出和 `summary-export`，并据其中的真实计数、错误率及 P90/P95/P99 判定项目阈值。测试本机服务时，容器通过 `host.docker.internal` 访问宿主。
 
 ## 8. 白盒执行与通用报告导入
 
