@@ -25,6 +25,15 @@ const STATUS_LABELS: Record<string, string> = {
   TIMED_OUT: "已超时",
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  PASSED: "通过",
+  TEST_FAILED: "测试失败",
+  COVERAGE_FAILED: "覆盖率未达标",
+  TOOL_ERROR: "工具错误",
+  CANCELLED: "已取消",
+  TIMED_OUT: "已超时",
+};
+
 const route = useRoute();
 const projectId = computed(() => Number(route.params.id));
 
@@ -38,8 +47,13 @@ const state = reactive({
   selectedEnvId: null as number | null,
   triggering: false,
   submitted: false,
+  performanceConfirmed: false,
   detail: null as ExecutionDetail | null,
 });
+
+const selectedCase = computed(() =>
+  state.apiCases.find((testCase) => testCase.id === state.selectedCaseId),
+);
 
 const passedAssertions = (step: {
   assertions: { passed: boolean }[];
@@ -64,7 +78,10 @@ async function load(): Promise<void> {
         (testCase.caseType === "API" ||
           testCase.caseType === "WEB" ||
           testCase.caseType === "ELECTRON" ||
-          testCase.caseType === "WINDOWS_NATIVE") &&
+          testCase.caseType === "ANDROID" ||
+          testCase.caseType === "WINDOWS_NATIVE" ||
+          testCase.caseType === "PERFORMANCE" ||
+          testCase.caseType === "WHITEBOX") &&
         testCase.status === "READY",
     );
     state.environments = environments;
@@ -79,6 +96,12 @@ async function submitTrigger(): Promise<void> {
   if (state.selectedCaseId === null || state.selectedEnvId === null) {
     return;
   }
+  const performance = selectedCase.value?.caseType === "PERFORMANCE";
+  if (performance && !state.performanceConfirmed) {
+    state.error = "请先确认本次压测";
+    state.submitted = false;
+    return;
+  }
   state.triggering = true;
   state.error = null;
   state.submitted = false;
@@ -86,6 +109,7 @@ async function submitTrigger(): Promise<void> {
     await triggerExecution(projectId.value, {
       caseId: state.selectedCaseId,
       environmentId: state.selectedEnvId,
+      ...(performance ? { confirmed: true } : {}),
     });
     state.submitted = true;
     await load();
@@ -95,6 +119,13 @@ async function submitTrigger(): Promise<void> {
     state.triggering = false;
   }
 }
+
+watch(
+  () => state.selectedCaseId,
+  () => {
+    state.performanceConfirmed = false;
+  },
+);
 
 async function open(jobId: number): Promise<void> {
   state.error = null;
@@ -140,7 +171,9 @@ watch(projectId, load);
 
     <h4>发起执行</h4>
     <el-form inline @submit.prevent="submitTrigger">
-      <el-form-item label="API / Web / Electron / Windows 用例">
+      <el-form-item
+        label="API / Web / Electron / Android / Windows / 性能 / 白盒用例"
+      >
         <el-radio-group v-model="state.selectedCaseId">
           <el-radio-button
             v-for="testCase in state.apiCases"
@@ -163,6 +196,13 @@ watch(projectId, load);
             {{ environment.name }}
           </el-radio-button>
         </el-radio-group>
+      </el-form-item>
+      <el-form-item v-if="selectedCase?.caseType === 'PERFORMANCE'">
+        <el-checkbox
+          v-model="state.performanceConfirmed"
+          data-testid="performance-confirm"
+          >我确认在授权目标上执行受限压测（不启用分布式）</el-checkbox
+        >
       </el-form-item>
       <el-form-item>
         <el-button
@@ -232,6 +272,18 @@ watch(projectId, load);
     <template v-if="state.detail">
       <el-divider />
       <div data-testid="exec-detail">
+        <div class="export-controls">
+          <span class="section-label">统一导出</span>
+          <a
+            v-for="format in ['html', 'junit', 'csv', 'xlsx', 'raw']"
+            :key="format"
+            class="export-link"
+            :data-testid="`export-${format}`"
+            :href="`/api/v1/projects/${projectId}/executions/${state.detail!.id}/export?format=${format}`"
+            :download="`execution-${state.detail!.id}.${format}`"
+            >{{ format.toUpperCase() }}</a
+          >
+        </div>
         <h3 class="detail-title">
           执行 #{{ state.detail.id }} — {{ caseTitle }}（{{
             STATUS_LABELS[state.detail.status] ?? state.detail.status
@@ -239,7 +291,7 @@ watch(projectId, load);
         </h3>
         <p
           v-if="
-            state.detail.jobType === 'WINDOWS_NATIVE' &&
+            ['WINDOWS_NATIVE', 'ANDROID'].includes(state.detail.jobType) &&
             state.detail.attempts[0]?.result
           "
           class="driver-line"
@@ -249,6 +301,98 @@ watch(projectId, load);
           {{ state.detail.attempts[0].result.driverName }}
           {{ state.detail.attempts[0].result.driverVersion }}
         </p>
+        <p
+          v-if="
+            state.detail.jobType === 'ANDROID' &&
+            state.detail.attempts[0]?.result
+          "
+          class="driver-line"
+          data-testid="android-device"
+        >
+          设备：{{ state.detail.attempts[0].result.deviceSerial }} ·
+          {{ state.detail.attempts[0].result.deviceModel }} · Android
+          {{ state.detail.attempts[0].result.platformVersion }} ·
+          每次执行显式重置应用
+        </p>
+        <div
+          v-if="state.detail.attempts[0]?.result?.metrics"
+          class="driver-line"
+          data-testid="performance-metrics"
+        >
+          {{ state.detail.attempts[0].result.engine }}
+          {{ state.detail.attempts[0].result.engineVersion }} · 请求
+          {{ state.detail.attempts[0].result.metrics.count }} · 吞吐
+          {{ state.detail.attempts[0].result.metrics.throughputPerSecond }}/s ·
+          错误率 {{ state.detail.attempts[0].result.metrics.errorRate }} ·
+          P90/P95/P99 {{ state.detail.attempts[0].result.metrics.p90Ms }}/{{
+            state.detail.attempts[0].result.metrics.p95Ms
+          }}/{{ state.detail.attempts[0].result.metrics.p99Ms }} ms
+        </div>
+        <div
+          v-if="state.detail.attempts[0]?.result?.thresholds?.length"
+          class="section"
+          data-testid="performance-thresholds"
+        >
+          <span class="section-label">压测阈值</span>
+          <el-table
+            :data="state.detail.attempts[0].result.thresholds"
+            size="small"
+          >
+            <el-table-column prop="name" label="指标" />
+            <el-table-column prop="expected" label="阈值" />
+            <el-table-column prop="actual" label="实际" />
+            <el-table-column label="结果" width="100">
+              <template #default="{ row }">
+                <el-tag :type="row.passed ? 'success' : 'danger'" size="small">
+                  {{ row.passed ? "通过" : "未达标" }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div
+          v-if="
+            state.detail.jobType === 'WHITEBOX' &&
+            state.detail.attempts[0]?.result
+          "
+          class="section"
+          data-testid="whitebox-result"
+        >
+          <span class="section-label">
+            {{
+              CATEGORY_LABELS[state.detail.attempts[0].result.category!] ??
+              state.detail.attempts[0].result.category
+            }}
+            · {{ state.detail.attempts[0].result.engine }}
+            {{ state.detail.attempts[0].result.engineVersion }}
+          </span>
+          <div>
+            测试：{{
+              state.detail.attempts[0].result.testResults?.passed ?? 0
+            }}/{{ state.detail.attempts[0].result.testResults?.total ?? 0 }}
+            通过，
+            {{ state.detail.attempts[0].result.testResults?.failed ?? 0 }} 失败
+          </div>
+          <div>
+            语句 {{ state.detail.attempts[0].result.coverage?.statements }}% ·
+            分支 {{ state.detail.attempts[0].result.coverage?.branches }}% ·
+            函数 {{ state.detail.attempts[0].result.coverage?.functions }}%
+          </div>
+          <div
+            v-for="threshold in state.detail.attempts[0].result.thresholds"
+            :key="threshold.name"
+          >
+            {{ threshold.name }}：{{ threshold.actual }} / 门槛
+            {{ threshold.expected }}（{{
+              threshold.passed ? "通过" : "未达标"
+            }}）
+          </div>
+          <div>
+            排除：{{
+              state.detail.attempts[0].result.exclusions?.join("、") || "无"
+            }}
+          </div>
+        </div>
         <el-alert
           v-if="state.detail.jobType === 'ELECTRON'"
           type="warning"

@@ -102,6 +102,45 @@ export interface ExecutionResult {
   appType?: string;
   driverName?: string;
   driverVersion?: string;
+  deviceSerial?: string;
+  deviceModel?: string;
+  platformVersion?: string;
+  engine?: string;
+  engineVersion?: string;
+  category?:
+    | "PASSED"
+    | "TEST_FAILED"
+    | "COVERAGE_FAILED"
+    | "TOOL_ERROR"
+    | "CANCELLED"
+    | "TIMED_OUT"
+    | string;
+  testResults?: {
+    total: number;
+    passed: number;
+    failed: number;
+    exitCode?: number;
+  };
+  coverage?: {
+    statements: number;
+    branches: number;
+    functions: number;
+  };
+  exclusions?: string[];
+  metrics?: {
+    count: number;
+    throughputPerSecond: number;
+    errorRate: number;
+    p90Ms: number;
+    p95Ms: number;
+    p99Ms: number;
+  };
+  thresholds?: {
+    name: string;
+    expected: number;
+    actual: number;
+    passed: boolean;
+  }[];
 }
 
 export interface ExecutionAttempt {
@@ -133,7 +172,7 @@ export async function fetchExecutionDetail(
 
 export async function triggerExecution(
   projectId: number,
-  payload: { caseId: number; environmentId: number },
+  payload: { caseId: number; environmentId: number; confirmed?: boolean },
 ): Promise<{ jobId: number; status: string }> {
   return apiSend<{ jobId: number; status: string }>(
     "POST",

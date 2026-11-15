@@ -16,7 +16,15 @@ export interface CaseRow {
   requirementId?: number | null;
   requirementTitle?: string | null;
   steps: StepRow[];
-  caseType?: "MANUAL" | "API" | "WEB" | "ELECTRON" | "WINDOWS_NATIVE";
+  caseType?:
+    | "MANUAL"
+    | "API"
+    | "WEB"
+    | "ELECTRON"
+    | "ANDROID"
+    | "WINDOWS_NATIVE"
+    | "PERFORMANCE"
+    | "WHITEBOX";
   execution?: Record<string, unknown> | null;
 }
 

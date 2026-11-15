@@ -41,9 +41,15 @@ Playwright Java 版本锁定为 1.65.0，安装命令只下载与其匹配的 Ch
 | `APP_DB_PASSWORD` | `testplatform_dev` |
 | `APP_WORKER_CHROMIUM_PATH` | 空；使用 Playwright 配套 Chromium |
 | `APP_EVIDENCE_DIR` | `./evidence` |
+| `APP_BACKUP_DIR` | `./backups` |
+| `APP_EXECUTION_SCHEDULE_SWEEP_MS` | `1000` |
 | `APP_EXECUTION_API_TIMEOUT_SECONDS` | `120` |
 | `APP_EXECUTION_WEB_TIMEOUT_SECONDS` | `120` |
 | `APP_EXECUTION_ELECTRON_TIMEOUT_SECONDS` | `120` |
+| `APP_EXECUTION_WINDOWS_NATIVE_TIMEOUT_SECONDS` | `120` |
+| `APP_EXECUTION_PERFORMANCE_TIMEOUT_SECONDS` | `60` |
+| `APP_EXECUTION_PERFORMANCE_MAX_VUS` | `8` |
+| `APP_EXECUTION_PERFORMANCE_MAX_DURATION_SECONDS` | `30` |
 
 若修改了 `POSTGRES_HOST_PORT`，同步修改 `APP_DB_URL` 端口。生产部署必须将 `APP_EVIDENCE_DIR` 放到持久卷；截图、Trace 和下载文件可能含业务数据，只能通过项目授权接口读取。
 
@@ -97,6 +103,125 @@ npm run check          # workers/electron/：Worker 与演示应用语法检查
 ```
 
 后端 Electron 集成测试要求先执行 `workers/electron/npm ci`；Linux 还需要 `xvfb-run -a mvn -B verify`。
+
+## 7. 受限性能压测
+
+性能用例只能由项目负责人创建、发布和发起，普通成员不能执行。每次发起还必须单独确认；并发、阶段数和总时长受 `APP_EXECUTION_PERFORMANCE_MAX_VUS` 与 `APP_EXECUTION_PERFORMANCE_MAX_DURATION_SECONDS` 限制，只允许环境白名单中的 HTTP/HTTPS 目标，不支持分布式压测。
+
+默认通过 Docker 运行固定镜像 `grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276`，先执行：
+
+```bash
+docker pull grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
+```
+
+也可用 `APP_WORKER_K6_PATH` 指定本地 k6 可执行文件，或用 `APP_WORKER_K6_IMAGE` 覆盖经过审核的镜像。报告保存 k6 原始脚本、控制台输出和 `summary-export`，并据其中的真实计数、错误率及 P90/P95/P99 判定项目阈值。测试本机服务时，容器通过 `host.docker.internal` 访问宿主。
+
+## 8. 白盒执行与通用报告导入
+
+白盒 Worker 在独立目录中复制固定 `demo-js` 项目并运行 Vitest 5.1.0 + V8，不执行用户提供的 Shell 命令。注册 `WHITEBOX` 能力 Worker 后运行：
+
+```bash
+cd workers/whitebox
+export CONTROL_PLANE_URL=http://127.0.0.1:8080
+export WORKER_TOKEN=替换为注册凭据
+export EVIDENCE_DIR=与后端相同的证据目录
+npm start
+```
+
+每次运行分别安装依赖并保存原始测试结果、覆盖率、工具输出和 `vitest.config.js`。语句、分支、函数覆盖率与排除规则均来自真实执行；`src/legacy.js` 的排除必须与版本化配置一致。`TEST_FAILED`、`COVERAGE_FAILED` 和 `TOOL_ERROR` 分别对应测试失败、覆盖不达标和工具错误。
+
+其他语言仅提供通用报告导入，不执行原工具：`POST /api/v1/projects/{projectId}/report-imports` 接收 `language`、`filename` 和 `content`，原始文件可在项目内授权下载，不按 TS/JS 覆盖率规则判定。
+
+## 9. Android 模拟器执行（Windows 主机）
+
+只使用专用测试模拟器，不要在日常设备上运行这些会清空应用的验收。iOS 不在当前验收范围内。需要 JDK（设置 `JAVA_HOME`）、Docker 以外的 Android SDK，以及 Node 24。SDK 命令行工具必须位于 `cmdline-tools/latest/bin`，否则生成的 AVD 路径会错误。
+
+```bash
+export ANDROID_SDK_ROOT=/绝对路径/tools/android-sdk
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+"$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager.bat" --sdk_root="$ANDROID_SDK_ROOT" \
+  "platform-tools" "platforms;android-34" "build-tools;34.0.0" "emulator" \
+  "system-images;android-34;google_apis;x86_64"
+printf 'no\n' | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager.bat" \
+  create avd -n test-automation-api34 \
+  -k 'system-images;android-34;google_apis;x86_64' -d pixel_6 --force
+"$ANDROID_SDK_ROOT/emulator/emulator.exe" -avd test-automation-api34 \
+  -no-window -no-audio -no-snapshot -gpu swiftshader_indirect -memory 2048
+```
+
+另开终端安装固定版本的 Node、Appium 与驱动。`node` 和 `npm` 都在项目内锁定；第一条命令只引导安装，第二条完成安装并强制校验 Appium 的实际运行时为 Node 24.15+。推荐先用版本管理器选择 Node 24；若系统安装器是 Node 25，可能出现引擎警告，但不能绕过安装脚本的运行时校验。检查和启动使用项目内 Node 24/npm。
+
+```bash
+cd workers/appium
+npm ci --ignore-scripts
+npm ci   # postinstall 强制校验 Appium 的实际运行时为 Node 24.15+
+node_modules/node/bin/node.exe node_modules/npm/bin/npm-cli.js run check
+export APPIUM_HOME="$PWD/.appium"
+node_modules/node/bin/node.exe node_modules/npm/bin/npm-cli.js start
+```
+
+在仓库根目录构建原生演示 APK（不是 Chromium 或 Web 容器）：
+
+```bash
+export JAVA_HOME=/绝对路径/jdk
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File workers/appium/demo/android/build.ps1 -Sdk "$ANDROID_SDK_ROOT"
+export APP_WORKER_ANDROID_DEMO_APK="$PWD/workers/appium/demo/android/build/demo.apk"
+```
+
+创建 Android 用例时，`caseType=ANDROID`，执行配置必须明确包含 `app=demo-android`、`deviceSerial`、`reset=true` 和步骤。支持 `FILL`、`CLICK`、`ASSERT_TEXT`、`WAIT`，定位值为无障碍 `contentDescription`。执行会强制重装、清空并重启演示应用，同一设备由数据库锁互斥，结束时删除 Appium 会话并清理应用。报告记录设备型号、Android 版本、UiAutomator2 版本和真实截图；断连是 `ERROR`，不是业务断言失败。
+
+专用模拟器启动完成后，可运行真实验收。测试自己启动回环 `4724` Appium 服务，并在结束时关闭该模拟器；不要并发运行其他 Android 验收。
+
+```bash
+cd backend
+mvn -B -pl platform-server -Dandroid.e2e=true \
+  -Dandroid.sdk="$ANDROID_SDK_ROOT" -Dtest=AndroidExecutionApiIntegrationTest test
+```
+
+## 10. 导出、保留与备份恢复
+
+执行详情页可导出 HTML、JUnit XML、Excel、CSV 和原始引擎输出。所有导出都经过项目权限检查；原始输出使用执行器已经脱敏的结果，JUnit 的时间单位为秒。
+
+项目负责人可通过 `GET/PUT /api/v1/projects/{projectId}/evidence-policy` 查看或设置 1–365 天的证据保留期，默认 30 天。每个文件按其执行所属项目独立计算保留期。清理只删除附件，保留执行摘要、不可变用例版本和审计；`evidence_pruned` 记录清理结果，已清理证据下载返回 410。系统每小时自动清理，管理员也可调用 `POST /api/v1/system/evidence-retention/sweep` 立即执行。
+
+管理员通过 `POST /api/v1/system/backups` 创建 ZIP，包含 PostgreSQL 的 `pg_dump` 输出与证据目录。备份工具镜像固定为部署使用的 PostgreSQL 16.15 + pgvector 摘要。通过 `POST /api/v1/system/restore` 提交返回的 `filename`，系统会恢复到**新的独立数据库和附件目录**，不覆盖正在运行的环境。
+
+按接口返回的数据库名和 `evidenceDir` 启动隔离实例，使用原部署的密钥主密钥：
+
+```bash
+export APP_DB_URL=jdbc:postgresql://localhost:5432/恢复接口返回的数据库名
+export APP_DB_USER=testplatform
+export APP_DB_PASSWORD=原数据库密码
+export APP_EVIDENCE_DIR=/绝对路径/恢复接口返回的evidenceDir
+export APP_SECRETS_MASTER_KEY=原部署主密钥
+export APP_BACKUP_DIR=/绝对路径/backups
+mvn -B spring-boot:run -pl platform-server   # backend/
+```
+
+然后使用备份中的账号登录，实际查询历史执行并下载证据。`APP_BACKUP_POSTGRES_IMAGE` 可覆盖经审核的工具镜像；生产环境请持久化并限制 `APP_BACKUP_DIR`、`APP_EVIDENCE_DIR` 的访问权限。测试已验证空数据库与附件目录恢复、独立应用登录和证据读取，而不只验证 ZIP 存在。
+
+## 11. 定时与 CI 触发
+
+项目“定时与 CI”页面可创建、启停计划。Cron 为**秒、分、时、日、月、周**六段格式，必须明确 IANA 时区（例如 `Asia/Shanghai`）。计划固定已发布用例版本和环境，默认禁止与上一个排队中或运行中的任务重叠。相同用例、环境、Cron 和时区的重复计划会被拒绝；数据库原子更新下一次执行时间防止并发重复触发。定时压测仍要求项目负责人明确确认。
+
+项目负责人可签发仅含 `EXECUTION_TRIGGER` 和/或 `EXECUTION_READ` 的项目级令牌，必须设置不超过 365 天的到期时间。原始令牌只显示一次，服务端只保存 SHA-256 摘要，可随时撤销。CI 令牌不能登录浏览器、调用 Worker 协议或越权项目；CI 压测不允许绕过单独确认。
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/v1/ci/v1/projects/1/executions \
+  -H "Authorization: Bearer $CI_TOKEN" \
+  -H "Idempotency-Key: $BUILD_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"caseId":1,"environmentId":1}'
+curl http://127.0.0.1:8080/api/v1/ci/v1/projects/1/executions/返回的任务ID \
+  -H "Authorization: Bearer $CI_READ_TOKEN"
+```
+
+同一幂等键和请求返回原任务，不重复执行；同一键对应不同请求返回 409。触发与查询作用域分开，过期或撤销返回 401，作用域不足返回 403，跨项目资源返回 404。查询返回实际的 `PASSED`、`ASSERTION_FAILED`、`ERROR`、`CANCELLED` 或 `TIMED_OUT`，不会把工具错误变成测试断言失败。
+
+## 12. 发布验收与边界
+
+完整实测范围、命令、结果和未验收清单见 [acceptance.md](./acceptance.md)。真实设备、桌面和引擎验收不能由缺少环境的跳过测试替代。GitHub Actions 覆盖通用后端、前端和独立 Windows 作业；Android 使用已准备模拟器的主机进行显式验收。
 
 ## 故障排查
 

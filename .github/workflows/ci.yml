@@ -28,6 +28,11 @@ jobs:
         run: mvn -B --no-transfer-progress -pl platform-server exec:java@playwright-install
       - name: Install display server for Electron
         run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Pull k6 image
+        run: docker pull grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276
+      - name: Check whitebox Worker
+        working-directory: workers/whitebox
+        run: npm run check
       - name: Backend tests and checks
         working-directory: backend
         run: xvfb-run -a mvn -B --no-transfer-progress verify

@@ -53,6 +53,11 @@ app:
     web-timeout-seconds: ${APP_EXECUTION_WEB_TIMEOUT_SECONDS:120}
     electron-timeout-seconds: ${APP_EXECUTION_ELECTRON_TIMEOUT_SECONDS:120}
     windows-native-timeout-seconds: ${APP_EXECUTION_WINDOWS_NATIVE_TIMEOUT_SECONDS:120}
+    performance-timeout-seconds: ${APP_EXECUTION_PERFORMANCE_TIMEOUT_SECONDS:60}
+    whitebox-timeout-seconds: ${APP_EXECUTION_WHITEBOX_TIMEOUT_SECONDS:180}
+    performance-max-vus: ${APP_EXECUTION_PERFORMANCE_MAX_VUS:8}
+    performance-max-duration-seconds: ${APP_EXECUTION_PERFORMANCE_MAX_DURATION_SECONDS:30}
+    schedule-sweep-ms: ${APP_EXECUTION_SCHEDULE_SWEEP_MS:1000}
   worker:
     # Lease length, offline detection window and sweeper cadence for the
     # persistent queue; tests shorten these to exercise recovery paths.
@@ -63,12 +68,19 @@ app:
     chromium-path: ${APP_WORKER_CHROMIUM_PATH:}
     appium-base-url: ${APP_WORKER_APPIUM_BASE_URL:http://127.0.0.1:4723}
     appium-home: ${APPIUM_HOME:}
+    android-sdk: ${ANDROID_SDK_ROOT:}
+    android-demo-apk: ${APP_WORKER_ANDROID_DEMO_APK:}
     powershell-path: ${APP_WORKER_POWERSHELL_PATH:C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}
     windows-demo-script: ${APP_WORKER_WINDOWS_DEMO_SCRIPT:}
+    k6-path: ${APP_WORKER_K6_PATH:}
+    k6-image: ${APP_WORKER_K6_IMAGE:grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276}
+  backup:
+    dir: ${APP_BACKUP_DIR:./backups}
+    postgres-image: ${APP_BACKUP_POSTGRES_IMAGE:pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a}
   evidence:
     # Screenshots, traces and downloads must be stored on a persistent volume.
     dir: ${APP_EVIDENCE_DIR:./evidence}
 
 logging:
   level:
-    org.springframework.security: TRACE
+    org.springframework.security: ${LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY:INFO}

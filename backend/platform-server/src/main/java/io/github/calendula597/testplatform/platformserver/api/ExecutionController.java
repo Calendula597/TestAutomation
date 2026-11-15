@@ -56,13 +56,19 @@ public class ExecutionController {
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
     private final io.github.calendula597.testplatform.platformserver.reporting.EvidenceStorage evidenceStorage;
+    private final io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersionMapper environmentVersionMapper;
+    private final io.github.calendula597.testplatform.platformserver.worker.PerformanceGuard performanceGuard;
+    private final io.github.calendula597.testplatform.platformserver.reporting.EvidenceRetentionService evidenceRetentionService;
 
     public ExecutionController(ProjectAccessService access, TestCaseMapper testCaseMapper,
                                TestCaseVersionMapper versionMapper,
                                EnvironmentMapper environmentMapper, ExecutionJobMapper jobMapper,
                                ExecutionAttemptMapper attemptMapper, JobQueueService queueService,
                                ObjectMapper objectMapper, AuditService auditService,
-                               io.github.calendula597.testplatform.platformserver.reporting.EvidenceStorage evidenceStorage) {
+                               io.github.calendula597.testplatform.platformserver.reporting.EvidenceStorage evidenceStorage,
+                               io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersionMapper environmentVersionMapper,
+                               io.github.calendula597.testplatform.platformserver.worker.PerformanceGuard performanceGuard,
+                               io.github.calendula597.testplatform.platformserver.reporting.EvidenceRetentionService evidenceRetentionService) {
         this.access = access;
         this.testCaseMapper = testCaseMapper;
         this.versionMapper = versionMapper;
@@ -73,12 +79,15 @@ public class ExecutionController {
         this.objectMapper = objectMapper;
         this.auditService = auditService;
         this.evidenceStorage = evidenceStorage;
+        this.environmentVersionMapper = environmentVersionMapper;
+        this.performanceGuard = performanceGuard;
+        this.evidenceRetentionService = evidenceRetentionService;
     }
 
-    public record TriggerRequest(Long caseId, Long environmentId, Integer timeoutSeconds) {
+    public record TriggerRequest(Long caseId, Long environmentId, Integer timeoutSeconds, Boolean confirmed) {
     }
 
-    private static final Set<String> EXECUTABLE_CASE_TYPES = Set.of("API", "WEB", "ELECTRON", "WINDOWS_NATIVE");
+    private static final Set<String> EXECUTABLE_CASE_TYPES = Set.of("API", "WEB", "ELECTRON", "ANDROID", "WINDOWS_NATIVE", "PERFORMANCE", "WHITEBOX");
 
     @PostMapping("/api/v1/projects/{projectId}/executions")
     @Transactional
@@ -104,11 +113,32 @@ public class ExecutionController {
             return badRequest("该用例还没有已发布版本");
         }
         if (!EXECUTABLE_CASE_TYPES.contains(version.getCaseType()) || version.getExecutionJson() == null) {
-            return badRequest("该用例不是可执行的类型（API、WEB、ELECTRON 或 WINDOWS_NATIVE）");
+            return badRequest("该用例不是可执行的类型（API、WEB、ELECTRON、ANDROID、WINDOWS_NATIVE、PERFORMANCE 或 WHITEBOX）");
         }
         Environment environment = environmentMapper.selectById(body.environmentId());
         if (environment == null || !projectId.equals(environment.getProjectId())) {
             return badRequest("环境不存在或不属于当前项目");
+        }
+        if ("PERFORMANCE".equals(version.getCaseType())) {
+            access.requireRole(projectId, principal.id(), ProjectMember.ROLE_OWNER);
+            if (!Boolean.TRUE.equals(body.confirmed())) {
+                return badRequest("压测必须明确确认后才能发起");
+            }
+            io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersion envVersion =
+                    environmentVersionMapper.selectOne(new LambdaQueryWrapper<io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersion>()
+                            .eq(io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersion::getEnvironmentId,
+                                    environment.getId())
+                            .eq(io.github.calendula597.testplatform.platformserver.environment.EnvironmentVersion::getVersion,
+                                    environment.getCurrentVersion()));
+            if (envVersion == null) {
+                return badRequest("环境版本数据缺失");
+            }
+            try {
+                performanceGuard.validate(version.getExecutionJson(), readStringList(envVersion.getTargets()),
+                        readStringMap(envVersion.getPlainVariables()));
+            } catch (IllegalArgumentException e) {
+                return badRequest(e.getMessage());
+            }
         }
 
         Map<String, Object> payload = new LinkedHashMap<>();
@@ -193,6 +223,9 @@ public class ExecutionController {
         if (metadata == null) {
             throw new ResourceNotFoundException("证据不存在");
         }
+        if (evidenceRetentionService.isPruned(String.valueOf(metadata.get("path")))) {
+            return ResponseEntity.status(HttpStatus.GONE).build();
+        }
         try {
             org.springframework.core.io.Resource resource =
                     evidenceStorage.read(String.valueOf(metadata.get("path")));
@@ -255,6 +288,24 @@ public class ExecutionController {
             view.put("environmentId", payloadMap.get("environmentId"));
         }
         return view;
+    }
+
+    private java.util.List<String> readStringList(String json) {
+        try {
+            return objectMapper.readValue(json,
+                    objectMapper.getTypeFactory().constructCollectionType(java.util.List.class, String.class));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("环境目标数据反序列化失败");
+        }
+    }
+
+    private Map<String, String> readStringMap(String json) {
+        try {
+            return objectMapper.readValue(json,
+                    objectMapper.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, String.class));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("环境变量数据反序列化失败");
+        }
     }
 
     private Object parseResult(String json) {

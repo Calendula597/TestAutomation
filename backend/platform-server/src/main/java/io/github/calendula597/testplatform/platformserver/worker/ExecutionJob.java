@@ -40,6 +40,10 @@ public class ExecutionJob {
 
     private Long createdBy;
 
+    private Long scheduleId;
+
+    private String idempotencyKey;
+
     private OffsetDateTime createdAt;
 
     private OffsetDateTime updatedAt;
@@ -122,6 +126,22 @@ public class ExecutionJob {
 
     public void setCreatedBy(Long createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public Long getScheduleId() {
+        return scheduleId;
+    }
+
+    public void setScheduleId(Long scheduleId) {
+        this.scheduleId = scheduleId;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public void setIdempotencyKey(String idempotencyKey) {
+        this.idempotencyKey = idempotencyKey;
     }
 
     public OffsetDateTime getCreatedAt() {

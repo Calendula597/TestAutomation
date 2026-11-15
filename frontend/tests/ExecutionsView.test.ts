@@ -394,7 +394,9 @@ describe("ExecutionsView", () => {
       caseId: 7,
       environmentId: 3,
     });
-    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
+    expect(wrapper.text()).toContain(
+      "API / Web / Electron / Android / Windows / 性能 / 白盒用例",
+    );
   });
 
   it("renders WEB steps and authorized evidence links", async () => {
@@ -557,7 +559,9 @@ describe("ExecutionsView", () => {
     const wrapper = await mountView();
     await flushPromises();
     expect(wrapper.find('[data-testid="exec-case-9"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
+    expect(wrapper.text()).toContain(
+      "API / Web / Electron / Android / Windows / 性能 / 白盒用例",
+    );
 
     await wrapper.find('[data-testid="exec-open-17"]').trigger("click");
     await flushPromises();
@@ -638,7 +642,9 @@ describe("ExecutionsView", () => {
     const wrapper = await mountView();
     await flushPromises();
     expect(wrapper.find('[data-testid="exec-case-10"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("API / Web / Electron / Windows 用例");
+    expect(wrapper.text()).toContain(
+      "API / Web / Electron / Android / Windows / 性能 / 白盒用例",
+    );
 
     await wrapper.find('[data-testid="exec-open-18"]').trigger("click");
     await flushPromises();
@@ -647,5 +653,242 @@ describe("ExecutionsView", () => {
     expect(driver.text()).toContain("WINFORMS");
     expect(driver.text()).toContain("Wincore 4.1.1");
     expect(wrapper.text()).toContain("未找到 UI 元素");
+  });
+
+  it("requires performance confirmation and displays real metrics and thresholds", async () => {
+    const performanceDetail = {
+      id: 19,
+      jobType: "PERFORMANCE",
+      status: "ASSERTION_FAILED",
+      caseVersionId: 11,
+      environmentId: 3,
+      createdAt: "2026-11-15T13:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "ASSERTION_FAILED",
+          result: {
+            status: "ASSERTION_FAILED",
+            reason: "压测阈值未满足",
+            engine: "k6",
+            engineVersion: "2.4.0",
+            metrics: {
+              count: 120,
+              throughputPerSecond: 40,
+              errorRate: 0.02,
+              p90Ms: 20,
+              p95Ms: 30,
+              p99Ms: 40,
+            },
+            thresholds: [
+              { name: "maxP95Ms", expected: 25, actual: 30, passed: false },
+            ],
+            evidence: [],
+            durationMs: 2000,
+          },
+        },
+      ],
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/api/v1/projects/1/executions/19")) {
+          return Promise.resolve(jsonResponse(performanceDetail));
+        }
+        if (
+          url.endsWith("/api/v1/projects/1/executions") &&
+          init?.method === "POST"
+        ) {
+          return Promise.resolve(
+            jsonResponse({ jobId: 19, status: "QUEUED" }, 202),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/executions")) {
+          return Promise.resolve(
+            jsonResponse([{ ...performanceDetail, attempts: undefined }]),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/testcases")) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                id: 11,
+                title: "受限压测",
+                status: "READY",
+                caseType: "PERFORMANCE",
+              },
+            ]),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/environments")) {
+          return Promise.resolve(
+            jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    await wrapper.find('[data-testid="exec-case-11"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-env-3"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-trigger"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("请先确认本次压测");
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(0);
+
+    await wrapper
+      .find('[data-testid="performance-confirm"] input')
+      .setValue(true);
+    await wrapper.find('[data-testid="exec-trigger"]').trigger("click");
+    await flushPromises();
+    const sent = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).endsWith("/api/v1/projects/1/executions") &&
+        init?.method === "POST",
+    ) as [RequestInfo, RequestInit] | undefined;
+    expect(sent).toBeTruthy();
+    expect(JSON.parse(String(sent![1]?.body))).toEqual({
+      caseId: 11,
+      environmentId: 3,
+      confirmed: true,
+    });
+
+    await wrapper.find('[data-testid="exec-open-19"]').trigger("click");
+    await flushPromises();
+    const metrics = wrapper.find('[data-testid="performance-metrics"]');
+    expect(metrics.exists()).toBe(true);
+    expect(metrics.text()).toContain("k6 2.4.0");
+    expect(metrics.text()).toContain("120");
+    expect(metrics.text()).toContain("0.02");
+    expect(metrics.text()).toContain("30");
+    expect(
+      wrapper.find('[data-testid="performance-thresholds"]').text(),
+    ).toContain("maxP95Ms");
+    expect(
+      wrapper.find('[data-testid="performance-thresholds"]').text(),
+    ).toContain("未达标");
+  });
+
+  it("shows whitebox result categories, coverage and exclusions", async () => {
+    const whiteboxDetail = {
+      id: 20,
+      jobType: "WHITEBOX",
+      status: "ASSERTION_FAILED",
+      caseVersionId: 12,
+      environmentId: 3,
+      createdAt: "2026-11-15T14:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "ASSERTION_FAILED",
+          result: {
+            status: "ASSERTION_FAILED",
+            category: "COVERAGE_FAILED",
+            reason: "覆盖率未达到项目门槛",
+            testResults: { total: 4, passed: 4, failed: 0, exitCode: 0 },
+            coverage: { statements: 75, branches: 60, functions: 80 },
+            thresholds: [
+              { name: "statements", expected: 90, actual: 75, passed: false },
+            ],
+            exclusions: ["src/legacy.js"],
+            engine: "Vitest",
+            engineVersion: "5.1.0",
+            evidence: [],
+            durationMs: 100,
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/20")) {
+        return Promise.resolve(jsonResponse(whiteboxDetail));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(
+          jsonResponse([{ ...whiteboxDetail, attempts: undefined }]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/testcases")) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: 12,
+              title: "白盒覆盖率",
+              status: "READY",
+              caseType: "WHITEBOX",
+            },
+          ]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/environments")) {
+        return Promise.resolve(
+          jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="exec-case-12"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain(
+      "API / Web / Electron / Android / Windows / 性能 / 白盒用例",
+    );
+
+    await wrapper.find('[data-testid="exec-open-20"]').trigger("click");
+    await flushPromises();
+    const result = wrapper.find('[data-testid="whitebox-result"]');
+    expect(result.exists()).toBe(true);
+    expect(result.text()).toContain("覆盖率未达标");
+    expect(result.text()).toContain("75");
+    expect(result.text()).toContain("60");
+    expect(result.text()).toContain("80");
+    expect(result.text()).toContain("src/legacy.js");
+    expect(result.text()).toContain("Vitest 5.1.0");
+  });
+
+  it("links every unified export format to the selected project execution", async () => {
+    const detail = {
+      id: 21,
+      jobType: "WEB",
+      status: "PASSED",
+      caseVersionId: 8,
+      environmentId: 3,
+      createdAt: "2026-11-15T15:00:00Z",
+      attempts: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/v1/projects/1/executions/21")) {
+          return Promise.resolve(jsonResponse(detail));
+        }
+        if (url.endsWith("/api/v1/projects/1/executions")) {
+          return Promise.resolve(
+            jsonResponse([{ ...detail, attempts: undefined }]),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      }),
+    );
+
+    const wrapper = await mountView();
+    await flushPromises();
+    await wrapper.find('[data-testid="exec-open-21"]').trigger("click");
+    await flushPromises();
+
+    for (const format of ["html", "junit", "csv", "xlsx", "raw"]) {
+      expect(
+        wrapper.find(`[data-testid="export-${format}"]`).attributes("href"),
+      ).toBe(`/api/v1/projects/1/executions/21/export?format=${format}`);
+    }
   });
 });

@@ -4,15 +4,19 @@
   "private": true,
   "scripts": {
     "start": "node node_modules/appium/index.js --address 127.0.0.1 --port 4723",
-    "check": "node node_modules/appium/index.js --version && node node_modules/appium/index.js driver list --installed",
-    "postinstall": "node node_modules/appium/index.js driver install --source=npm appium-wincore-driver@4.1.1"
+    "check": "node scripts/check-drivers.mjs && node node_modules/npm/bin/npm-cli.js audit --audit-level=high",
+    "postinstall": "node scripts/install-drivers.mjs"
   },
   "engines": {
     "node": ">=24.15.0"
   },
   "dependencies": {
     "appium": "4.0.0",
+    "appium-uiautomator2-driver": "9.1.0",
     "appium-wincore-driver": "4.1.1",
     "node": "24.15.0"
+  },
+  "devDependencies": {
+    "npm": "12.2.2"
   }
 }

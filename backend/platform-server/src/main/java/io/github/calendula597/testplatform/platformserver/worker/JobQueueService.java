@@ -51,6 +51,8 @@ public class JobQueueService {
     private final int webTimeoutSeconds;
     private final int electronTimeoutSeconds;
     private final int windowsNativeTimeoutSeconds;
+    private final int performanceTimeoutSeconds;
+    private final int whiteboxTimeoutSeconds;
 
     public JobQueueService(WorkerMapper workerMapper, ExecutionJobMapper jobMapper,
                            ExecutionAttemptMapper attemptMapper, WorkerDiagnosticMapper diagnosticMapper,
@@ -62,7 +64,9 @@ public class JobQueueService {
                            @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds,
                            @Value("${app.execution.web-timeout-seconds:120}") int webTimeoutSeconds,
                            @Value("${app.execution.electron-timeout-seconds:120}") int electronTimeoutSeconds,
-                           @Value("${app.execution.windows-native-timeout-seconds:120}") int windowsNativeTimeoutSeconds) {
+                           @Value("${app.execution.windows-native-timeout-seconds:120}") int windowsNativeTimeoutSeconds,
+                           @Value("${app.execution.performance-timeout-seconds:60}") int performanceTimeoutSeconds,
+                           @Value("${app.execution.whitebox-timeout-seconds:180}") int whiteboxTimeoutSeconds) {
         this.workerMapper = workerMapper;
         this.jobMapper = jobMapper;
         this.attemptMapper = attemptMapper;
@@ -77,6 +81,8 @@ public class JobQueueService {
         this.webTimeoutSeconds = webTimeoutSeconds;
         this.electronTimeoutSeconds = electronTimeoutSeconds;
         this.windowsNativeTimeoutSeconds = windowsNativeTimeoutSeconds;
+        this.performanceTimeoutSeconds = performanceTimeoutSeconds;
+        this.whiteboxTimeoutSeconds = whiteboxTimeoutSeconds;
     }
 
     public Set<String> allowedCapabilities() {
@@ -159,6 +165,13 @@ public class JobQueueService {
     @Transactional
     public ExecutionJob enqueueExecution(Long projectId, String jobType, Map<String, Object> payload,
                                          Long createdBy, Integer timeoutSeconds) {
+        return enqueueExecution(projectId, jobType, payload, createdBy, timeoutSeconds, null, null);
+    }
+
+    @Transactional
+    public ExecutionJob enqueueExecution(Long projectId, String jobType, Map<String, Object> payload,
+                                         Long createdBy, Integer timeoutSeconds,
+                                         Long scheduleId, String idempotencyKey) {
         ExecutionJob job = new ExecutionJob();
         job.setJobType(jobType);
         job.setProjectId(projectId);
@@ -167,13 +180,17 @@ public class JobQueueService {
         job.setRequeueOnLost(false);
         job.setLeaseSeconds(defaultLeaseSeconds);
         int defaultTimeout = switch (jobType) {
-            case "WEB" -> webTimeoutSeconds;
+            case "WEB", "ANDROID" -> webTimeoutSeconds;
             case "ELECTRON" -> electronTimeoutSeconds;
             case "WINDOWS_NATIVE" -> windowsNativeTimeoutSeconds;
+            case "PERFORMANCE" -> performanceTimeoutSeconds;
+            case "WHITEBOX" -> whiteboxTimeoutSeconds;
             default -> apiTimeoutSeconds;
         };
         job.setTimeoutSeconds(timeoutSeconds == null ? defaultTimeout : timeoutSeconds);
         job.setCreatedBy(createdBy);
+        job.setScheduleId(scheduleId);
+        job.setIdempotencyKey(idempotencyKey);
         jobMapper.insert(job);
         return job;
     }

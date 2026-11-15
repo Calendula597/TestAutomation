@@ -11,6 +11,8 @@ coverage/
 playwright-report/
 test-results/
 artifacts/
+evidence/
+backups/
 .DS_Store
 Thumbs.db
 
@@ -18,6 +20,8 @@ Thumbs.db
 target/
 workers/appium/.appium/
 workers/appium/demo/bin/
+tools/android-sdk/
+workers/appium/demo/android/build/
 
 # Agent tool state
 .mimosa/

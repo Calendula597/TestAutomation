@@ -43,7 +43,7 @@ public class TestCaseController {
     private static final Set<String> PRIORITIES =
             Set.of(TestCase.PRIORITY_HIGH, TestCase.PRIORITY_MEDIUM, TestCase.PRIORITY_LOW);
 
-    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API", "WEB", "ELECTRON", "WINDOWS_NATIVE");
+    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API", "WEB", "ELECTRON", "ANDROID", "WINDOWS_NATIVE", "PERFORMANCE", "WHITEBOX");
 
     private final ProjectAccessService access;
     private final TestCaseMapper testCaseMapper;
@@ -51,16 +51,19 @@ public class TestCaseController {
     private final RequirementMapper requirementMapper;
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
+    private final io.github.calendula597.testplatform.platformserver.worker.PerformanceGuard performanceGuard;
 
     public TestCaseController(ProjectAccessService access, TestCaseMapper testCaseMapper,
                               TestCaseStepMapper stepMapper, RequirementMapper requirementMapper,
-                              ObjectMapper objectMapper, AuditService auditService) {
+                              ObjectMapper objectMapper, AuditService auditService,
+                              io.github.calendula597.testplatform.platformserver.worker.PerformanceGuard performanceGuard) {
         this.access = access;
         this.testCaseMapper = testCaseMapper;
         this.stepMapper = stepMapper;
         this.requirementMapper = requirementMapper;
         this.objectMapper = objectMapper;
         this.auditService = auditService;
+        this.performanceGuard = performanceGuard;
     }
 
     public record StepInput(Integer stepOrder, String action, String testData, String expected) {
@@ -101,7 +104,10 @@ public class TestCaseController {
         }
         String caseType = body.caseType() == null ? "MANUAL" : body.caseType();
         if (!CASE_TYPES.contains(caseType)) {
-            return badRequest("用例类型必须是 MANUAL、API、WEB、ELECTRON 或 WINDOWS_NATIVE");
+            return badRequest("用例类型必须是 MANUAL、API、WEB、ELECTRON、ANDROID、WINDOWS_NATIVE、PERFORMANCE 或 WHITEBOX");
+        }
+        if ("PERFORMANCE".equals(caseType)) {
+            access.requireRole(projectId, principal.id(), ProjectMember.ROLE_OWNER);
         }
         String executionJson = null;
         if (body.execution() != null) {
@@ -157,6 +163,9 @@ public class TestCaseController {
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         access.requireRole(projectId, principal.id(), ProjectMember.ROLE_MEMBER);
         TestCase testCase = requireCase(projectId, caseId);
+        if ("PERFORMANCE".equals(testCase.getCaseType())) {
+            access.requireRole(projectId, principal.id(), ProjectMember.ROLE_OWNER);
+        }
 
         if (body.expectedVersion() == null || !body.expectedVersion().equals(testCase.getVersion())) {
             return conflict(testCase.getVersion());
@@ -275,9 +284,46 @@ public class TestCaseController {
         }
     }
 
+    private ResponseEntity<?> validateWhiteboxExecution(Map<String, Object> execution) {
+        if (!"demo-js".equals(execution.get("project"))) {
+            return badRequest("白盒执行必须显式选择 demo-js 项目");
+        }
+        if (!Set.of("pass", "fail-tests", "slow", "partial", "tool-error").contains(execution.get("scenario"))) {
+            return badRequest("不支持的白盒演示场景");
+        }
+        if (!(execution.get("coverage") instanceof Map<?, ?> coverage)
+                || !(coverage.get("thresholds") instanceof Map<?, ?> thresholds)) {
+            return badRequest("白盒执行必须配置覆盖率门槛");
+        }
+        for (String name : Set.of("statements", "branches", "functions")) {
+            if (!(thresholds.get(name) instanceof Number number)
+                    || number.doubleValue() < 0 || number.doubleValue() > 100) {
+                return badRequest(name + " 覆盖率门槛必须在 0-100 之间");
+            }
+        }
+        if (!List.of("src/legacy.js").equals(coverage.get("exclude"))) {
+            return badRequest("覆盖率排除规则必须与版本化 demo 配置一致");
+        }
+        return null;
+    }
+
     private ResponseEntity<?> validateExecution(String caseType, Map<String, Object> execution) {
+        if ("WHITEBOX".equals(caseType)) {
+            return validateWhiteboxExecution(execution);
+        }
+        if ("PERFORMANCE".equals(caseType)) {
+            try {
+                performanceGuard.validateSchema(objectMapper.readTree(objectMapper.writeValueAsString(execution)));
+                return null;
+            } catch (IllegalArgumentException e) {
+                return badRequest(e.getMessage());
+            }
+        }
+        if ("ANDROID".equals(caseType)) {
+            return validateAndroidExecution(execution);
+        }
         if ("WINDOWS_NATIVE".equals(caseType)) {
-            return validateWindowsNativeExecution(execution);
+            return validateAppSteps(execution, "原生 Windows", "demo-winforms");
         }
         if ("ELECTRON".equals(caseType)) {
             return validateElectronExecution(execution);
@@ -286,7 +332,7 @@ public class TestCaseController {
             return validateWebExecution(execution);
         }
         if (!"API".equals(caseType)) {
-            return badRequest("只有 API、WEB、ELECTRON 或 WINDOWS_NATIVE 用例可以携带执行配置");
+            return badRequest("只有 API、WEB、ELECTRON、ANDROID、WINDOWS_NATIVE、PERFORMANCE 或 WHITEBOX 用例可以携带执行配置");
         }
         Object request = execution.get("request");
         Object requests = execution.get("requests");
@@ -319,21 +365,32 @@ public class TestCaseController {
         return null;
     }
 
-    private ResponseEntity<?> validateWindowsNativeExecution(Map<String, Object> execution) {
-        if (!"demo-winforms".equals(execution.get("app"))) {
-            return badRequest("原生 Windows 执行必须显式选择 demo-winforms 应用");
+    private ResponseEntity<?> validateAndroidExecution(Map<String, Object> execution) {
+        if (!Boolean.TRUE.equals(execution.get("reset"))) {
+            return badRequest("Android 执行必须显式设置 reset=true");
+        }
+        if (!(execution.get("deviceSerial") instanceof String serial)
+                || !serial.matches("[A-Za-z0-9._:-]{1,100}")) {
+            return badRequest("Android 执行必须提供有效的 deviceSerial");
+        }
+        return validateAppSteps(execution, "Android", "demo-android");
+    }
+
+    private ResponseEntity<?> validateAppSteps(Map<String, Object> execution, String platform, String app) {
+        if (!app.equals(execution.get("app"))) {
+            return badRequest(platform + " 执行必须显式选择 " + app + " 应用");
         }
         if (!(execution.get("steps") instanceof List<?> steps) || steps.isEmpty()) {
-            return badRequest("原生 Windows 执行配置必须包含至少一个步骤");
+            return badRequest(platform + " 执行配置必须包含至少一个步骤");
         }
         Set<String> actions = Set.of("FILL", "CLICK", "ASSERT_TEXT", "WAIT");
         for (Object item : steps) {
             if (!(item instanceof Map<?, ?> step)) {
-                return badRequest("每个原生 Windows 步骤必须是对象");
+                return badRequest("每个 " + platform + " 步骤必须是对象");
             }
             String action = String.valueOf(step.get("action")).toUpperCase();
             if (!actions.contains(action)) {
-                return badRequest("不支持的原生 Windows 步骤类型: " + action);
+                return badRequest("不支持的 " + platform + " 步骤类型: " + action);
             }
             if (!"WAIT".equals(action)
                     && (step.get("selector") == null || String.valueOf(step.get("selector")).isBlank())) {

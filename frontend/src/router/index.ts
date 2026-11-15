@@ -17,6 +17,7 @@ import TestcasesView from "../views/TestcasesView.vue";
 import UsersView from "../views/UsersView.vue";
 import WorkersView from "../views/WorkersView.vue";
 import CoverageView from "../views/CoverageView.vue";
+import AutomationView from "../views/AutomationView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -99,6 +100,12 @@ const router = createRouter({
       name: "executions",
       component: ExecutionsView,
       meta: { title: "执行记录" },
+    },
+    {
+      path: "/projects/:id/automation",
+      name: "automation",
+      component: AutomationView,
+      meta: { title: "定时与 CI" },
     },
     {
       path: "/projects/:id/plans/:planId/runs/:runId",

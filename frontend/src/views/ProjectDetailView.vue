@@ -131,6 +131,11 @@ watch(projectId, load);
             class="entry-link"
             >覆盖矩阵</router-link
           >
+          <router-link
+            :to="`/projects/${projectId}/automation`"
+            class="entry-link"
+            >定时与 CI</router-link
+          >
           <el-button :loading="state.loading" @click="load">刷新</el-button>
         </div>
       </div>
