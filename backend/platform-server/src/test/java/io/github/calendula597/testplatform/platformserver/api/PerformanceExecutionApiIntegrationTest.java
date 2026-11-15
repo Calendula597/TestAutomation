@@ -305,7 +305,7 @@ class PerformanceExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(admin, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("PASSED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("PASSED");
         JsonNode result = detail.body().get("attempts").get(0).get("result");
         assertThat(result.get("engine").asText()).isEqualTo("k6");
         assertThat(result.get("engineVersion").asText()).isEqualTo("2.4.0");
@@ -332,7 +332,7 @@ class PerformanceExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(admin, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("ASSERTION_FAILED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("ASSERTION_FAILED");
         JsonNode threshold = detail.body().get("attempts").get(0).get("result")
                 .get("thresholds").get(0);
         assertThat(threshold.get("name").asText()).isEqualTo("maxP95Ms");
@@ -350,7 +350,7 @@ class PerformanceExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(admin, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("ASSERTION_FAILED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("ASSERTION_FAILED");
         assertThat(detail.body().get("attempts").get(0).get("result")
                 .get("metrics").get("errorRate").asDouble()).isEqualTo(1);
     }

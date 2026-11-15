@@ -106,8 +106,12 @@ public class PerformanceExecutor {
             process = new ProcessBuilder(command).redirectErrorStream(true)
                     .redirectOutput(output.toFile()).start();
             String status = waitForCompletion(process, control);
+            if (!"PASSED".equals(status)) {
+                throw new ExecutionErrorException("k6 执行失败: " + outputTail(output));
+            }
             if (!Files.isRegularFile(summary)) {
-                throw new ExecutionErrorException("k6 未生成 summary-export，状态=" + status);
+                throw new ExecutionErrorException("k6 未生成 summary-export，状态=" + status
+                        + "，输出=" + outputTail(output));
             }
             List<Map<String, Object>> evidence = new ArrayList<>();
             evidence.add(evidenceEntry("K6_SUMMARY", summary, "application/json", "summary.json"));
@@ -228,6 +232,14 @@ public class PerformanceExecutor {
         result.put("actual", actual);
         result.put("passed", passed);
         results.add(result);
+    }
+
+    private String outputTail(Path output) throws IOException {
+        if (!Files.isRegularFile(output)) {
+            return "无进程输出";
+        }
+        String content = Files.readString(output);
+        return content.length() > 4000 ? content.substring(content.length() - 4000) : content;
     }
 
     private String statusReason(String processStatus, boolean thresholdsPassed) {
