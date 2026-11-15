@@ -345,6 +345,11 @@ class WhiteboxExecutionApiIntegrationTest {
         HttpResult detail = runWorker(admin, jobId);
 
         assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("TIMED_OUT");
+        assertThat(detail.body().get("attempts").get(0).get("result").get("reason").asText())
+                .isIn("TIMEOUT", "执行超时");
+        try (var runs = Files.list(EVIDENCE_DIR)) {
+            runs.forEach(run -> assertThat(run.resolve("project")).doesNotExist());
+        }
     }
 
     @Test

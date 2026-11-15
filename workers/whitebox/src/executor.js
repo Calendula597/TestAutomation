@@ -65,16 +65,31 @@ async function runCommand(command, args, cwd, logName, control) {
     await new Promise((resolve) => output.end(resolve));
     await checkControl(control);
   } catch (error) {
-    await killTree(child);
+    await killTree(child, closed);
     output.destroy();
     throw error;
   }
   return child.exitCode;
 }
 
-async function killTree(child) {
+async function waitForClose(closed, milliseconds) {
+  let timer;
+  try {
+    return await Promise.race([
+      closed.then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), milliseconds);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function killTree(child, closed) {
   if (process.platform === "win32") {
     await execFileAsync("taskkill", ["/pid", String(child.pid), "/T", "/F"]).catch(() => {});
+    await waitForClose(closed, 2000);
     return;
   }
   try {
@@ -86,6 +101,19 @@ async function killTree(child) {
       // The process already exited.
     }
   }
+  if (await waitForClose(closed, 2000)) {
+    return;
+  }
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // The process already exited.
+    }
+  }
+  await waitForClose(closed, 2000);
 }
 
 function evidenceEntry(kind, storageKey, filename, contentType) {
@@ -231,7 +259,12 @@ export async function executeWhitebox(preparation, control) {
       engineVersion: "5.1.0",
     };
   } finally {
-    await fs.rm(projectDirectory, { recursive: true, force: true });
+    await fs.rm(projectDirectory, {
+      recursive: true,
+      force: true,
+      maxRetries: 10,
+      retryDelay: 100,
+    });
   }
   return outcome;
 }
