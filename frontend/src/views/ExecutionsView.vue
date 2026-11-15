@@ -61,7 +61,9 @@ async function load(): Promise<void> {
     state.executions = executions;
     state.apiCases = cases.filter(
       (testCase) =>
-        (testCase.caseType === "API" || testCase.caseType === "WEB") &&
+        (testCase.caseType === "API" ||
+          testCase.caseType === "WEB" ||
+          testCase.caseType === "ELECTRON") &&
         testCase.status === "READY",
     );
     state.environments = environments;
@@ -137,7 +139,7 @@ watch(projectId, load);
 
     <h4>发起执行</h4>
     <el-form inline @submit.prevent="submitTrigger">
-      <el-form-item label="API / Web 用例">
+      <el-form-item label="API / Web / Electron 用例">
         <el-radio-group v-model="state.selectedCaseId">
           <el-radio-button
             v-for="testCase in state.apiCases"
@@ -234,6 +236,14 @@ watch(projectId, load);
             STATUS_LABELS[state.detail.status] ?? state.detail.status
           }}）
         </h3>
+        <el-alert
+          v-if="state.detail.jobType === 'ELECTRON'"
+          type="warning"
+          :closable="false"
+          show-icon
+          data-testid="electron-boundary"
+          title="实验性：主进程验证仅使用应用显式测试钩子；不支持原生系统对话框。"
+        />
         <div
           v-for="attempt in state.detail.attempts"
           :key="attempt.attemptNumber"

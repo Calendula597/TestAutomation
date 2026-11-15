@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Electron 演示应用</title>
+  </head>
+  <body>
+    <h1>Electron 演示应用</h1>
+    <p id="boundary">
+      实验性：主进程验证仅使用显式测试钩子；不支持原生系统对话框。
+    </p>
+    <label for="note">笔记</label>
+    <input id="note" name="note" />
+    <button id="save" type="button">保存</button>
+    <ul id="notes"></ul>
+    <script>
+      document.getElementById("save").addEventListener("click", async () => {
+        const notes = await window.demoApi.saveNote(
+          document.getElementById("note").value,
+        );
+        document.getElementById("notes").replaceChildren(
+          ...notes.map((note) => {
+            const item = document.createElement("li");
+            item.textContent = note;
+            return item;
+          }),
+        );
+      });
+    </script>
+  </body>
+</html>

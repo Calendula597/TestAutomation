@@ -78,7 +78,7 @@ public class ExecutionController {
     public record TriggerRequest(Long caseId, Long environmentId, Integer timeoutSeconds) {
     }
 
-    private static final Set<String> EXECUTABLE_CASE_TYPES = Set.of("API", "WEB");
+    private static final Set<String> EXECUTABLE_CASE_TYPES = Set.of("API", "WEB", "ELECTRON");
 
     @PostMapping("/api/v1/projects/{projectId}/executions")
     @Transactional
@@ -104,7 +104,7 @@ public class ExecutionController {
             return badRequest("该用例还没有已发布版本");
         }
         if (!EXECUTABLE_CASE_TYPES.contains(version.getCaseType()) || version.getExecutionJson() == null) {
-            return badRequest("该用例不是可执行的类型（API 或 WEB）");
+            return badRequest("该用例不是可执行的类型（API、WEB 或 ELECTRON）");
         }
         Environment environment = environmentMapper.selectById(body.environmentId());
         if (environment == null || !projectId.equals(environment.getProjectId())) {

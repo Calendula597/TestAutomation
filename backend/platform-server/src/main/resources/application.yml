@@ -51,6 +51,7 @@ app:
   execution:
     api-timeout-seconds: ${APP_EXECUTION_API_TIMEOUT_SECONDS:120}
     web-timeout-seconds: ${APP_EXECUTION_WEB_TIMEOUT_SECONDS:120}
+    electron-timeout-seconds: ${APP_EXECUTION_ELECTRON_TIMEOUT_SECONDS:120}
   worker:
     # Lease length, offline detection window and sweeper cadence for the
     # persistent queue; tests shorten these to exercise recovery paths.

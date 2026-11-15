@@ -49,6 +49,7 @@ public class JobQueueService {
     private final int diagnosticTimeoutSeconds;
     private final int apiTimeoutSeconds;
     private final int webTimeoutSeconds;
+    private final int electronTimeoutSeconds;
 
     public JobQueueService(WorkerMapper workerMapper, ExecutionJobMapper jobMapper,
                            ExecutionAttemptMapper attemptMapper, WorkerDiagnosticMapper diagnosticMapper,
@@ -58,7 +59,8 @@ public class JobQueueService {
                            @Value("${app.worker.offline-after-seconds:90}") int offlineAfterSeconds,
                            @Value("${app.worker.diagnostic-timeout-seconds:120}") int diagnosticTimeoutSeconds,
                            @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds,
-                           @Value("${app.execution.web-timeout-seconds:120}") int webTimeoutSeconds) {
+                           @Value("${app.execution.web-timeout-seconds:120}") int webTimeoutSeconds,
+                           @Value("${app.execution.electron-timeout-seconds:120}") int electronTimeoutSeconds) {
         this.workerMapper = workerMapper;
         this.jobMapper = jobMapper;
         this.attemptMapper = attemptMapper;
@@ -71,6 +73,7 @@ public class JobQueueService {
         this.diagnosticTimeoutSeconds = diagnosticTimeoutSeconds;
         this.apiTimeoutSeconds = apiTimeoutSeconds;
         this.webTimeoutSeconds = webTimeoutSeconds;
+        this.electronTimeoutSeconds = electronTimeoutSeconds;
     }
 
     public Set<String> allowedCapabilities() {
@@ -160,7 +163,11 @@ public class JobQueueService {
         job.setStatus(ExecutionJob.STATUS_QUEUED);
         job.setRequeueOnLost(false);
         job.setLeaseSeconds(defaultLeaseSeconds);
-        int defaultTimeout = "WEB".equals(jobType) ? webTimeoutSeconds : apiTimeoutSeconds;
+        int defaultTimeout = switch (jobType) {
+            case "WEB" -> webTimeoutSeconds;
+            case "ELECTRON" -> electronTimeoutSeconds;
+            default -> apiTimeoutSeconds;
+        };
         job.setTimeoutSeconds(timeoutSeconds == null ? defaultTimeout : timeoutSeconds);
         job.setCreatedBy(createdBy);
         jobMapper.insert(job);

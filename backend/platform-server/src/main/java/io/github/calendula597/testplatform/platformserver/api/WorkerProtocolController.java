@@ -36,15 +36,18 @@ public class WorkerProtocolController {
     private final JobQueueService queueService;
     private final WorkerCredentialService credentialService;
     private final ObjectMapper objectMapper;
+    private final io.github.calendula597.testplatform.platformserver.worker.WorkerExecutionPreparationService preparationService;
 
     public WorkerProtocolController(WorkerMapper workerMapper, ExecutionAttemptMapper attemptMapper,
                                     JobQueueService queueService, WorkerCredentialService credentialService,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    io.github.calendula597.testplatform.platformserver.worker.WorkerExecutionPreparationService preparationService) {
         this.workerMapper = workerMapper;
         this.attemptMapper = attemptMapper;
         this.queueService = queueService;
         this.credentialService = credentialService;
         this.objectMapper = objectMapper;
+        this.preparationService = preparationService;
     }
 
     public record HeartbeatRequest(List<Long> attemptIds) {
@@ -75,6 +78,11 @@ public class WorkerProtocolController {
         response.put("job", job);
         response.put("attempt", attempt);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/api/v1/worker/v1/attempts/{attemptId}/execution")
+    public Map<String, Object> prepareExecution(@PathVariable Long attemptId, HttpServletRequest request) {
+        return preparationService.prepare(requireWorker(request), attemptId);
     }
 
     @PostMapping("/api/v1/worker/v1/heartbeat")

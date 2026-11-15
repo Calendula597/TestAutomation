@@ -43,6 +43,7 @@ Playwright Java 版本锁定为 1.65.0，安装命令只下载与其匹配的 Ch
 | `APP_EVIDENCE_DIR` | `./evidence` |
 | `APP_EXECUTION_API_TIMEOUT_SECONDS` | `120` |
 | `APP_EXECUTION_WEB_TIMEOUT_SECONDS` | `120` |
+| `APP_EXECUTION_ELECTRON_TIMEOUT_SECONDS` | `120` |
 
 若修改了 `POSTGRES_HOST_PORT`，同步修改 `APP_DB_URL` 端口。生产部署必须将 `APP_EVIDENCE_DIR` 放到持久卷；截图、Trace 和下载文件可能含业务数据，只能通过项目授权接口读取。
 
@@ -56,12 +57,31 @@ npm run dev
 
 打开 <http://localhost:5173>，页面“系统健康”展示真实的后端 API 与数据库健康状态（含延迟、数据库版本、pgvector 迁移后的连接）。开发服务器将 `/api` 代理到 `http://localhost:8080`，可用 `VITE_API_PROXY_TARGET` 覆盖。
 
-## 4. 统一检查
+## 4. 启动独立 Electron Worker（可选）
+
+先在“Worker 管理”注册声明 `ELECTRON` 能力的 Worker，并保存只显示一次的凭据，然后运行：
 
 ```bash
-mvn -B verify          # backend/：单元 + 集成测试（Testcontainers 真实 PostgreSQL）
-npm run check          # frontend/：格式 + lint + 类型 + 边界 + 测试 + 构建
+cd workers/electron
+npm ci
+export CONTROL_PLANE_URL=http://127.0.0.1:8080
+export WORKER_TOKEN=替换为注册凭据
+npm start
 ```
+
+`npm ci` 会通过项目 `postinstall` 安装锁定版本的 Electron。默认下载源不可访问时，可执行 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ npm ci`；也可用 `ELECTRON_EXECUTABLE_PATH` 指定已有 Electron 可执行文件。Linux 无图形桌面时改用 `xvfb-run -a npm start`。`WORKER_ONCE=1` 可让 Worker 处理一个任务后退出。
+
+当前验收应用是仓库内演示 Electron 应用。渲染器只能通过受控 IPC 保存笔记，主进程只暴露 `getSavedNotes` 测试钩子；这是实验性能力，不支持原生系统对话框，也不接受任意 JavaScript 或任意应用路径。
+
+## 5. 统一检查
+
+```bash
+mvn -B verify          # backend/：单元 + 集成测试（真实 PostgreSQL、Chromium 和 Electron）
+npm run check          # frontend/：格式 + lint + 类型 + 边界 + 测试 + 构建
+npm run check          # workers/electron/：Worker 与演示应用语法检查
+```
+
+后端 Electron 集成测试要求先执行 `workers/electron/npm ci`；Linux 还需要 `xvfb-run -a mvn -B verify`。
 
 ## 故障排查
 

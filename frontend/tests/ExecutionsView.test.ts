@@ -394,7 +394,7 @@ describe("ExecutionsView", () => {
       caseId: 7,
       environmentId: 3,
     });
-    expect(wrapper.text()).toContain("API / Web 用例");
+    expect(wrapper.text()).toContain("API / Web / Electron 用例");
   });
 
   it("renders WEB steps and authorized evidence links", async () => {
@@ -491,5 +491,81 @@ describe("ExecutionsView", () => {
     expect(wrapper.find('[data-testid="assertions-table"]').exists()).toBe(
       false,
     );
+  });
+
+  it("offers Electron cases and shows the experimental main-process boundary", async () => {
+    const electronDetail = {
+      id: 17,
+      jobType: "ELECTRON",
+      status: "PASSED",
+      caseVersionId: 9,
+      environmentId: 3,
+      createdAt: "2026-11-15T11:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "PASSED",
+          result: {
+            status: "PASSED",
+            steps: [
+              {
+                index: 0,
+                action: "MAIN_HOOK",
+                status: "PASSED",
+                actual: "[]",
+                durationMs: 4,
+                evidence: [],
+              },
+            ],
+            evidence: [],
+            durationMs: 20,
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/17")) {
+        return Promise.resolve(jsonResponse(electronDetail));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(
+          jsonResponse([{ ...electronDetail, attempts: undefined }]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/testcases")) {
+        return Promise.resolve(
+          jsonResponse([
+            {
+              id: 9,
+              title: "Electron 笔记",
+              status: "READY",
+              caseType: "ELECTRON",
+            },
+          ]),
+        );
+      }
+      if (url.endsWith("/api/v1/projects/1/environments")) {
+        return Promise.resolve(
+          jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    expect(wrapper.find('[data-testid="exec-case-9"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain("API / Web / Electron 用例");
+
+    await wrapper.find('[data-testid="exec-open-17"]').trigger("click");
+    await flushPromises();
+    const boundary = wrapper.find('[data-testid="electron-boundary"]');
+    expect(boundary.exists()).toBe(true);
+    expect(boundary.text()).toContain("实验性");
+    expect(boundary.text()).toContain("显式测试钩子");
+    expect(boundary.text()).toContain("原生系统对话框");
+    expect(wrapper.text()).toContain("MAIN_HOOK");
   });
 });

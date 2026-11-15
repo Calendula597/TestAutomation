@@ -15,12 +15,22 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: workers/electron/package-lock.json
+      - name: Install Electron Worker dependencies
+        working-directory: workers/electron
+        run: npm ci
       - name: Install Chromium
         working-directory: backend
         run: mvn -B --no-transfer-progress -pl platform-server exec:java@playwright-install
+      - name: Install display server for Electron
+        run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Backend tests and checks
         working-directory: backend
-        run: mvn -B --no-transfer-progress verify
+        run: xvfb-run -a mvn -B --no-transfer-progress verify
 
   frontend:
     runs-on: ubuntu-latest
