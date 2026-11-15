@@ -45,6 +45,10 @@ const passedAssertions = (step: {
   assertions: { passed: boolean }[];
 }): number => step.assertions.filter((a) => a.passed).length;
 
+function evidenceUrl(jobId: number, evidenceId: string): string {
+  return `/api/v1/projects/${projectId.value}/executions/${jobId}/evidence/${evidenceId}`;
+}
+
 async function load(): Promise<void> {
   state.loading = true;
   state.error = null;
@@ -56,7 +60,9 @@ async function load(): Promise<void> {
     ]);
     state.executions = executions;
     state.apiCases = cases.filter(
-      (testCase) => testCase.caseType === "API" && testCase.status === "READY",
+      (testCase) =>
+        (testCase.caseType === "API" || testCase.caseType === "WEB") &&
+        testCase.status === "READY",
     );
     state.environments = environments;
   } catch (error) {
@@ -131,7 +137,7 @@ watch(projectId, load);
 
     <h4>发起执行</h4>
     <el-form inline @submit.prevent="submitTrigger">
-      <el-form-item label="API 用例">
+      <el-form-item label="API / Web 用例">
         <el-radio-group v-model="state.selectedCaseId">
           <el-radio-button
             v-for="testCase in state.apiCases"
@@ -245,6 +251,71 @@ watch(projectId, load);
             <p v-if="attempt.result.reason" class="reason-line">
               原因：{{ attempt.result.reason }}
             </p>
+            <div
+              v-if="attempt.result.steps?.length"
+              class="section"
+              data-testid="web-steps"
+            >
+              <span class="section-label">Web 步骤</span>
+              <el-table :data="attempt.result.steps" size="small">
+                <el-table-column label="步骤" min-width="190">
+                  <template #default="{ row }">
+                    <div>{{ row.index + 1 }}. {{ row.action }}</div>
+                    <div class="step-selector">{{ row.selector || "—" }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="状态" width="110">
+                  <template #default="{ row }">
+                    <el-tag
+                      :type="row.status === 'PASSED' ? 'success' : 'danger'"
+                      size="small"
+                      >{{ STATUS_LABELS[row.status] ?? row.status }}</el-tag
+                    >
+                  </template>
+                </el-table-column>
+                <el-table-column label="预期 / 实际" min-width="180">
+                  <template #default="{ row }">
+                    <div>预期：{{ row.expected ?? "—" }}</div>
+                    <div>实际：{{ row.actual ?? "—" }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="错误" min-width="150">
+                  <template #default="{ row }">{{ row.error || "—" }}</template>
+                </el-table-column>
+                <el-table-column label="证据" min-width="150">
+                  <template #default="{ row }">
+                    <a
+                      v-for="entry in row.evidence"
+                      :key="entry.id"
+                      class="evidence-link"
+                      :data-testid="`evidence-${entry.id}`"
+                      :href="evidenceUrl(state.detail!.id, entry.id)"
+                      >{{ entry.kind }} · {{ entry.filename }}</a
+                    >
+                  </template>
+                </el-table-column>
+                <el-table-column
+                  prop="durationMs"
+                  label="耗时(ms)"
+                  width="100"
+                />
+              </el-table>
+            </div>
+            <div
+              v-if="attempt.result.evidence?.length"
+              class="section"
+              data-testid="run-evidence"
+            >
+              <span class="section-label">执行证据</span>
+              <a
+                v-for="entry in attempt.result.evidence"
+                :key="entry.id"
+                class="evidence-link"
+                :data-testid="`evidence-${entry.id}`"
+                :href="evidenceUrl(state.detail!.id, entry.id)"
+                >{{ entry.kind }} · {{ entry.filename }}</a
+              >
+            </div>
             <!-- Chained / data-row runs report per-row results. -->
             <div
               v-if="attempt.result.rows && attempt.result.rows.length"
@@ -335,7 +406,7 @@ watch(projectId, load);
                 响应体已截断
               </p>
             </div>
-            <div class="section">
+            <div v-if="attempt.result.assertions?.length" class="section">
               <span class="section-label">断言</span>
               <el-table
                 :data="attempt.result.assertions"
@@ -414,6 +485,17 @@ watch(projectId, load);
   display: block;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.step-selector {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.evidence-link {
+  display: block;
   margin-bottom: 4px;
 }
 

@@ -344,4 +344,152 @@ describe("ExecutionsView", () => {
     expect(result).toContain("断言失败");
     expect(result).toContain("1/1");
   });
+
+  it("triggers a ready WEB case from the execution page", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (
+          url.endsWith("/api/v1/projects/1/executions") &&
+          init?.method === "POST"
+        ) {
+          return Promise.resolve(
+            jsonResponse({ jobId: 16, status: "QUEUED" }, 202),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/executions")) {
+          return Promise.resolve(jsonResponse([]));
+        }
+        if (url.endsWith("/api/v1/projects/1/testcases")) {
+          return Promise.resolve(
+            jsonResponse([
+              { id: 7, title: "浏览器登录", status: "READY", caseType: "WEB" },
+            ]),
+          );
+        }
+        if (url.endsWith("/api/v1/projects/1/environments")) {
+          return Promise.resolve(
+            jsonResponse([{ id: 3, name: "演示环境", currentVersion: 1 }]),
+          );
+        }
+        return Promise.resolve(jsonResponse({}));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    await wrapper.find('[data-testid="exec-case-7"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-env-3"] input').setValue(true);
+    await wrapper.find('[data-testid="exec-trigger"]').trigger("click");
+    await flushPromises();
+
+    const sent = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).endsWith("/api/v1/projects/1/executions") &&
+        init?.method === "POST",
+    ) as [RequestInfo, RequestInit] | undefined;
+    expect(sent).toBeTruthy();
+    expect(JSON.parse(String(sent![1]?.body))).toEqual({
+      caseId: 7,
+      environmentId: 3,
+    });
+    expect(wrapper.text()).toContain("API / Web 用例");
+  });
+
+  it("renders WEB steps and authorized evidence links", async () => {
+    const webDetail = {
+      id: 15,
+      jobType: "WEB",
+      status: "ASSERTION_FAILED",
+      caseVersionId: 8,
+      environmentId: 3,
+      createdAt: "2026-11-15T10:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "ASSERTION_FAILED",
+          result: {
+            status: "ASSERTION_FAILED",
+            reason: "业务断言未满足",
+            steps: [
+              {
+                index: 0,
+                action: "FILL",
+                selector: "input[name=q]",
+                actual: "******",
+                status: "PASSED",
+                durationMs: 12,
+                evidence: [],
+              },
+              {
+                index: 1,
+                action: "ASSERT_TEXT",
+                selector: "#result",
+                expected: "欢迎",
+                actual: "再见",
+                status: "ASSERTION_FAILED",
+                durationMs: 8,
+                evidence: [
+                  {
+                    id: "shot-1",
+                    kind: "SCREENSHOT",
+                    filename: "step-1-failure.png",
+                    path: "run/step.png",
+                    contentType: "image/png",
+                  },
+                ],
+              },
+            ],
+            evidence: [
+              {
+                id: "trace-1",
+                kind: "TRACE",
+                filename: "trace.zip",
+                path: "run/trace.zip",
+                contentType: "application/zip",
+              },
+            ],
+            durationMs: 20,
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/15")) {
+        return Promise.resolve(jsonResponse(webDetail));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(
+          jsonResponse([{ ...webDetail, attempts: undefined }]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+    await wrapper.find('[data-testid="exec-open-15"]').trigger("click");
+    await flushPromises();
+
+    const steps = wrapper.find('[data-testid="web-steps"]');
+    expect(steps.exists()).toBe(true);
+    expect(steps.text()).toContain("FILL");
+    expect(steps.text()).toContain("input[name=q]");
+    expect(steps.text()).toContain("ASSERT_TEXT");
+    expect(steps.text()).toContain("欢迎");
+    expect(steps.text()).toContain("再见");
+    expect(steps.text()).toContain("断言失败");
+    expect(
+      wrapper.find('[data-testid="evidence-trace-1"]').attributes("href"),
+    ).toBe("/api/v1/projects/1/executions/15/evidence/trace-1");
+    expect(
+      wrapper.find('[data-testid="evidence-shot-1"]').attributes("href"),
+    ).toBe("/api/v1/projects/1/executions/15/evidence/shot-1");
+    expect(wrapper.find('[data-testid="assertions-table"]').exists()).toBe(
+      false,
+    );
+  });
 });

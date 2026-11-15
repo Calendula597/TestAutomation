@@ -43,7 +43,7 @@ public class TestCaseController {
     private static final Set<String> PRIORITIES =
             Set.of(TestCase.PRIORITY_HIGH, TestCase.PRIORITY_MEDIUM, TestCase.PRIORITY_LOW);
 
-    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API");
+    private static final Set<String> CASE_TYPES = Set.of("MANUAL", "API", "WEB");
 
     private final ProjectAccessService access;
     private final TestCaseMapper testCaseMapper;
@@ -101,11 +101,11 @@ public class TestCaseController {
         }
         String caseType = body.caseType() == null ? "MANUAL" : body.caseType();
         if (!CASE_TYPES.contains(caseType)) {
-            return badRequest("用例类型必须是 MANUAL 或 API");
+            return badRequest("用例类型必须是 MANUAL、API 或 WEB");
         }
         String executionJson = null;
         if (body.execution() != null) {
-            ResponseEntity<?> executionValidation = validateExecution(body.execution());
+            ResponseEntity<?> executionValidation = validateExecution(caseType, body.execution());
             if (executionValidation != null) {
                 return executionValidation;
             }
@@ -170,7 +170,7 @@ public class TestCaseController {
         testCase.setPriority(body.priority() == null ? testCase.getPriority() : body.priority());
         testCase.setRequirementId(requirementIdOf(projectId, body.requirementId()));
         if (body.execution() != null) {
-            ResponseEntity<?> executionValidation = validateExecution(body.execution());
+            ResponseEntity<?> executionValidation = validateExecution(testCase.getCaseType(), body.execution());
             if (executionValidation != null) {
                 return executionValidation;
             }
@@ -275,9 +275,13 @@ public class TestCaseController {
         }
     }
 
-    /** Execution schemas carry either a single request or a request chain;
-     * every request needs a method and a URL. */
-    private ResponseEntity<?> validateExecution(Map<String, Object> execution) {
+    private ResponseEntity<?> validateExecution(String caseType, Map<String, Object> execution) {
+        if ("WEB".equals(caseType)) {
+            return validateWebExecution(execution);
+        }
+        if (!"API".equals(caseType)) {
+            return badRequest("只有 API 或 WEB 用例可以携带执行配置");
+        }
         Object request = execution.get("request");
         Object requests = execution.get("requests");
         if (request instanceof Map<?, ?> requestMap) {
@@ -305,6 +309,33 @@ public class TestCaseController {
         Object assertions = execution.get("assertions");
         if (assertions != null && !(assertions instanceof List<?>)) {
             return badRequest("断言必须是数组");
+        }
+        return null;
+    }
+
+    private ResponseEntity<?> validateWebExecution(Map<String, Object> execution) {
+        if (!(execution.get("startUrl") instanceof String startUrl) || startUrl.isBlank()) {
+            return badRequest("Web 执行配置的起始地址不能为空");
+        }
+        if (!(execution.get("steps") instanceof List<?> steps) || steps.isEmpty()) {
+            return badRequest("Web 执行配置必须包含至少一个步骤");
+        }
+        Set<String> actions = Set.of("NAVIGATE", "FILL", "CLICK", "ASSERT_TEXT", "ASSERT_VISIBLE",
+                "ASSERT_TITLE", "UPLOAD", "DOWNLOAD", "WAIT", "FRAME", "MAIN_FRAME");
+        Set<String> selectorActions = Set.of("FILL", "CLICK", "ASSERT_TEXT", "ASSERT_VISIBLE",
+                "UPLOAD", "DOWNLOAD", "FRAME");
+        for (Object item : steps) {
+            if (!(item instanceof Map<?, ?> step)) {
+                return badRequest("每个 Web 步骤必须是对象");
+            }
+            String action = String.valueOf(step.get("action")).toUpperCase();
+            if (!actions.contains(action)) {
+                return badRequest("不支持的 Web 步骤类型: " + action);
+            }
+            if (selectorActions.contains(action)
+                    && (step.get("selector") == null || String.valueOf(step.get("selector")).isBlank())) {
+                return badRequest(action + " 步骤必须提供 selector");
+            }
         }
         return null;
     }

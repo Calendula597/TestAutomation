@@ -57,6 +57,27 @@ export interface ChainRowResult {
   steps: ChainStepResult[];
 }
 
+export interface EvidenceEntry {
+  id: string;
+  kind: "SCREENSHOT" | "TRACE" | "DOWNLOAD" | string;
+  path: string;
+  filename: string;
+  contentType: string;
+  size?: number;
+}
+
+export interface WebStepResult {
+  index: number;
+  action: string;
+  selector?: string | null;
+  status: ExecutionStatus;
+  expected?: string | null;
+  actual?: string | null;
+  error?: string | null;
+  durationMs: number;
+  evidence: EvidenceEntry[];
+}
+
 export interface ExecutionResult {
   status: string;
   reason?: string | null;
@@ -72,10 +93,12 @@ export interface ExecutionResult {
     body: string;
     bodyTruncated: boolean;
   } | null;
-  assertions: MaskedAssertion[];
+  assertions?: MaskedAssertion[];
   durationMs: number;
-  redirects: string[];
+  redirects?: string[];
   rows?: ChainRowResult[];
+  steps?: WebStepResult[];
+  evidence?: EvidenceEntry[];
 }
 
 export interface ExecutionAttempt {

@@ -69,6 +69,13 @@
       <artifactId>commons-csv</artifactId>
       <version>1.14.1</version>
     </dependency>
+    <!-- Browsers are installed through the explicit CLI execution below,
+         never downloaded by an executing test case. -->
+    <dependency>
+      <groupId>com.microsoft.playwright</groupId>
+      <artifactId>playwright</artifactId>
+      <version>1.65.0</version>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -97,6 +104,26 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.6.3</version>
+        <executions>
+          <execution>
+            <id>playwright-install</id>
+            <goals>
+              <goal>java</goal>
+            </goals>
+            <configuration>
+              <mainClass>com.microsoft.playwright.CLI</mainClass>
+              <arguments>
+                <argument>install</argument>
+                <argument>chromium</argument>
+              </arguments>
+            </configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

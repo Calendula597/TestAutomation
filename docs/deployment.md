@@ -1,6 +1,6 @@
 # 部署与本地启动
 
-本页描述如何从干净检出启动数据库、Java 后端和 Vue 前端（T01 验收）。
+本页描述如何从干净检出启动数据库、Java 后端、Chromium 和 Vue 前端。
 
 ## 前置条件
 
@@ -22,12 +22,15 @@ docker compose up -d db
 
 镜像按 digest 锁定为 PostgreSQL 16.15 + pgvector（禁止浮动标签）。
 
-## 2. 启动后端
+## 2. 安装 Chromium 并启动后端
 
 ```bash
 cd backend
+mvn -B -pl platform-server exec:java@playwright-install
 mvn -B spring-boot:run -pl platform-server
 ```
+
+Playwright Java 版本锁定为 1.65.0，安装命令只下载与其匹配的 Chromium。执行用例时不会自动下载浏览器；缺少浏览器或依赖时会返回明确的执行错误。若使用已有 Chrome/Chromium，可跳过安装命令并设置 `APP_WORKER_CHROMIUM_PATH` 为可执行文件绝对路径。
 
 环境变量（可选，默认值对应上面的 Compose 配置）：
 
@@ -36,8 +39,12 @@ mvn -B spring-boot:run -pl platform-server
 | `APP_DB_URL` | `jdbc:postgresql://localhost:5432/test_platform` |
 | `APP_DB_USER` | `testplatform` |
 | `APP_DB_PASSWORD` | `testplatform_dev` |
+| `APP_WORKER_CHROMIUM_PATH` | 空；使用 Playwright 配套 Chromium |
+| `APP_EVIDENCE_DIR` | `./evidence` |
+| `APP_EXECUTION_API_TIMEOUT_SECONDS` | `120` |
+| `APP_EXECUTION_WEB_TIMEOUT_SECONDS` | `120` |
 
-若修改了 `POSTGRES_HOST_PORT`，同步修改 `APP_DB_URL` 端口。
+若修改了 `POSTGRES_HOST_PORT`，同步修改 `APP_DB_URL` 端口。生产部署必须将 `APP_EVIDENCE_DIR` 放到持久卷；截图、Trace 和下载文件可能含业务数据，只能通过项目授权接口读取。
 
 ## 3. 启动前端
 
@@ -63,3 +70,5 @@ npm run check          # frontend/：格式 + lint + 类型 + 边界 + 测试 + 
 - **健康页显示“后端不可达”**：后端未启动或代理目标不对；检查 8080 端口与 `VITE_API_PROXY_TARGET`。
 - **端口冲突**：5432 被占用时在 `deploy/.env` 设置 `POSTGRES_HOST_PORT`；8080 冲突时以 `SERVER_PORT` 环境变量调整后端端口并同步代理目标。
 - **pgvector 扩展缺失**：V1 迁移会自动启用；只有官方 pgvector 镜像带该扩展，不要换成普通 postgres 镜像。
+- **Web 用例提示 Chromium 不存在或无法启动**：先运行 `mvn -B -pl platform-server exec:java@playwright-install`，或检查 `APP_WORKER_CHROMIUM_PATH` 是否指向真实可执行文件。运行时不会自动补装 Firefox/WebKit，也不会把缺失浏览器伪装成执行成功。
+- **执行记录有结果但证据下载 404**：检查 `APP_EVIDENCE_DIR` 是否为持久目录，以及 Worker 与 API 服务是否使用同一证据卷；证据元数据中的存储键不能指向卷外文件。

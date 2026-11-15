@@ -30,10 +30,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Execution triggers and member-visible results for project test cases.
@@ -53,12 +55,14 @@ public class ExecutionController {
     private final JobQueueService queueService;
     private final ObjectMapper objectMapper;
     private final AuditService auditService;
+    private final io.github.calendula597.testplatform.platformserver.reporting.EvidenceStorage evidenceStorage;
 
     public ExecutionController(ProjectAccessService access, TestCaseMapper testCaseMapper,
                                TestCaseVersionMapper versionMapper,
                                EnvironmentMapper environmentMapper, ExecutionJobMapper jobMapper,
                                ExecutionAttemptMapper attemptMapper, JobQueueService queueService,
-                               ObjectMapper objectMapper, AuditService auditService) {
+                               ObjectMapper objectMapper, AuditService auditService,
+                               io.github.calendula597.testplatform.platformserver.reporting.EvidenceStorage evidenceStorage) {
         this.access = access;
         this.testCaseMapper = testCaseMapper;
         this.versionMapper = versionMapper;
@@ -68,10 +72,13 @@ public class ExecutionController {
         this.queueService = queueService;
         this.objectMapper = objectMapper;
         this.auditService = auditService;
+        this.evidenceStorage = evidenceStorage;
     }
 
-    public record TriggerRequest(Long caseId, Long environmentId) {
+    public record TriggerRequest(Long caseId, Long environmentId, Integer timeoutSeconds) {
     }
+
+    private static final Set<String> EXECUTABLE_CASE_TYPES = Set.of("API", "WEB");
 
     @PostMapping("/api/v1/projects/{projectId}/executions")
     @Transactional
@@ -81,6 +88,9 @@ public class ExecutionController {
         access.requireRole(projectId, principal.id(), ProjectMember.ROLE_MEMBER);
         if (body.caseId() == null || body.environmentId() == null) {
             return badRequest("必须指定用例与环境");
+        }
+        if (body.timeoutSeconds() != null && (body.timeoutSeconds() < 1 || body.timeoutSeconds() > 3600)) {
+            return badRequest("超时时长必须是 1-3600 秒");
         }
         TestCase draftCase = requireCase(projectId, body.caseId());
         // Execution always targets the case's latest published version.
@@ -93,8 +103,8 @@ public class ExecutionController {
         if (version == null) {
             return badRequest("该用例还没有已发布版本");
         }
-        if (!"API".equals(version.getCaseType()) || version.getExecutionJson() == null) {
-            return badRequest("该用例不是可执行的 API 类型");
+        if (!EXECUTABLE_CASE_TYPES.contains(version.getCaseType()) || version.getExecutionJson() == null) {
+            return badRequest("该用例不是可执行的类型（API 或 WEB）");
         }
         Environment environment = environmentMapper.selectById(body.environmentId());
         if (environment == null || !projectId.equals(environment.getProjectId())) {
@@ -104,11 +114,13 @@ public class ExecutionController {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("caseVersionId", version.getId());
         payload.put("environmentId", environment.getId());
-        ExecutionJob job = queueService.enqueueApiExecution(projectId, payload, principal.id());
+        ExecutionJob job = queueService.enqueueExecution(projectId, version.getCaseType(), payload,
+                principal.id(), body.timeoutSeconds());
 
         auditService.record(authentication, "EXECUTION_TRIGGERED", null,
                 Map.of("projectId", projectId, "jobId", job.getId(),
-                        "caseVersionId", version.getId(), "environmentId", environment.getId()));
+                        "caseVersionId", version.getId(), "environmentId", environment.getId(),
+                        "jobType", version.getCaseType()));
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("jobId", job.getId());
         response.put("status", job.getStatus());
@@ -158,6 +170,69 @@ public class ExecutionController {
         }
         view.put("attempts", attempts);
         return ResponseEntity.ok(view);
+    }
+
+    @GetMapping("/api/v1/projects/{projectId}/executions/{jobId}/evidence/{evidenceId}")
+    public ResponseEntity<org.springframework.core.io.Resource> evidence(
+            @PathVariable Long projectId, @PathVariable Long jobId,
+            @PathVariable String evidenceId, Authentication authentication) {
+        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
+        access.requireRole(projectId, principal.id(), ProjectMember.ROLE_VIEWER);
+        ExecutionJob job = jobMapper.selectById(jobId);
+        if (job == null || !projectId.equals(job.getProjectId())) {
+            throw new ResourceNotFoundException("执行任务不存在");
+        }
+        Map<String, Object> metadata = null;
+        for (ExecutionAttempt attempt : attemptMapper.selectList(new LambdaQueryWrapper<ExecutionAttempt>()
+                .eq(ExecutionAttempt::getJobId, jobId).orderByDesc(ExecutionAttempt::getId))) {
+            metadata = findEvidence(parseResult(attempt.getResult()), evidenceId);
+            if (metadata != null) {
+                break;
+            }
+        }
+        if (metadata == null) {
+            throw new ResourceNotFoundException("证据不存在");
+        }
+        try {
+            org.springframework.core.io.Resource resource =
+                    evidenceStorage.read(String.valueOf(metadata.get("path")));
+            String filename = String.valueOf(metadata.getOrDefault("filename", resource.getFilename()));
+            String contentType = String.valueOf(metadata.getOrDefault("contentType", "application/octet-stream"));
+            return ResponseEntity.ok()
+                    .contentLength(resource.contentLength())
+                    .header("Content-Type", contentType)
+                    .header("Content-Disposition", org.springframework.http.ContentDisposition.attachment()
+                            .filename(filename, java.nio.charset.StandardCharsets.UTF_8).build().toString())
+                    .body(resource);
+        } catch (IOException | RuntimeException e) {
+            throw new ResourceNotFoundException("证据不存在或无法读取");
+        }
+    }
+
+    private Map<String, Object> findEvidence(Object result, String evidenceId) {
+        if (result instanceof Map<?, ?> map) {
+            Object id = map.get("id");
+            if (id != null && evidenceId.equals(String.valueOf(id))
+                    && map.get("kind") != null && map.get("path") != null) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> metadata = (Map<String, Object>) map;
+                return metadata;
+            }
+            for (Object value : map.values()) {
+                Map<String, Object> found = findEvidence(value, evidenceId);
+                if (found != null) {
+                    return found;
+                }
+            }
+        } else if (result instanceof List<?> list) {
+            for (Object value : list) {
+                Map<String, Object> found = findEvidence(value, evidenceId);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private TestCase requireCase(Long projectId, Long caseId) {

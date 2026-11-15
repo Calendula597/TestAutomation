@@ -15,6 +15,9 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
+      - name: Install Chromium
+        working-directory: backend
+        run: mvn -B --no-transfer-progress -pl platform-server exec:java@playwright-install
       - name: Backend tests and checks
         working-directory: backend
         run: mvn -B --no-transfer-progress verify

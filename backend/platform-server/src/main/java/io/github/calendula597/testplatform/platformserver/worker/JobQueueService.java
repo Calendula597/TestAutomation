@@ -48,6 +48,7 @@ public class JobQueueService {
     private final int offlineAfterSeconds;
     private final int diagnosticTimeoutSeconds;
     private final int apiTimeoutSeconds;
+    private final int webTimeoutSeconds;
 
     public JobQueueService(WorkerMapper workerMapper, ExecutionJobMapper jobMapper,
                            ExecutionAttemptMapper attemptMapper, WorkerDiagnosticMapper diagnosticMapper,
@@ -56,7 +57,8 @@ public class JobQueueService {
                            @Value("${app.worker.lease-seconds:30}") int defaultLeaseSeconds,
                            @Value("${app.worker.offline-after-seconds:90}") int offlineAfterSeconds,
                            @Value("${app.worker.diagnostic-timeout-seconds:120}") int diagnosticTimeoutSeconds,
-                           @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds) {
+                           @Value("${app.execution.api-timeout-seconds:120}") int apiTimeoutSeconds,
+                           @Value("${app.execution.web-timeout-seconds:120}") int webTimeoutSeconds) {
         this.workerMapper = workerMapper;
         this.jobMapper = jobMapper;
         this.attemptMapper = attemptMapper;
@@ -68,6 +70,7 @@ public class JobQueueService {
         this.offlineAfterSeconds = offlineAfterSeconds;
         this.diagnosticTimeoutSeconds = diagnosticTimeoutSeconds;
         this.apiTimeoutSeconds = apiTimeoutSeconds;
+        this.webTimeoutSeconds = webTimeoutSeconds;
     }
 
     public Set<String> allowedCapabilities() {
@@ -148,15 +151,17 @@ public class JobQueueService {
      * waits for a user-triggered retry instead.
      */
     @Transactional
-    public ExecutionJob enqueueApiExecution(Long projectId, Map<String, Object> payload, Long createdBy) {
+    public ExecutionJob enqueueExecution(Long projectId, String jobType, Map<String, Object> payload,
+                                         Long createdBy, Integer timeoutSeconds) {
         ExecutionJob job = new ExecutionJob();
-        job.setJobType("API");
+        job.setJobType(jobType);
         job.setProjectId(projectId);
         job.setPayload(writeJson(payload));
         job.setStatus(ExecutionJob.STATUS_QUEUED);
         job.setRequeueOnLost(false);
         job.setLeaseSeconds(defaultLeaseSeconds);
-        job.setTimeoutSeconds(apiTimeoutSeconds);
+        int defaultTimeout = "WEB".equals(jobType) ? webTimeoutSeconds : apiTimeoutSeconds;
+        job.setTimeoutSeconds(timeoutSeconds == null ? defaultTimeout : timeoutSeconds);
         job.setCreatedBy(createdBy);
         jobMapper.insert(job);
         return job;

@@ -48,6 +48,9 @@ app:
     # injected via APP_SECRETS_MASTER_KEY, never committed. Without a key,
     # secret writes fail explicitly instead of storing plaintext.
     master-key: ${APP_SECRETS_MASTER_KEY:}
+  execution:
+    api-timeout-seconds: ${APP_EXECUTION_API_TIMEOUT_SECONDS:120}
+    web-timeout-seconds: ${APP_EXECUTION_WEB_TIMEOUT_SECONDS:120}
   worker:
     # Lease length, offline detection window and sweeper cadence for the
     # persistent queue; tests shorten these to exercise recovery paths.
@@ -56,6 +59,9 @@ app:
     diagnostic-timeout-seconds: ${APP_WORKER_DIAGNOSTIC_TIMEOUT_SECONDS:120}
     sweep-interval-ms: ${APP_WORKER_SWEEP_INTERVAL_MS:5000}
     chromium-path: ${APP_WORKER_CHROMIUM_PATH:}
+  evidence:
+    # Screenshots, traces and downloads must be stored on a persistent volume.
+    dir: ${APP_EVIDENCE_DIR:./evidence}
 
 logging:
   level:
