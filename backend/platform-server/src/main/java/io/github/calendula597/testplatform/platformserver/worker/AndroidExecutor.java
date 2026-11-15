@@ -133,6 +133,7 @@ public class AndroidExecutor {
             platformVersion = deviceProperty(serial, "ro.build.version.release");
             Map<String, String> variables = environmentVariables(environmentId, sensitiveValues);
             runDirectory = evidenceStorage.createRunDirectory();
+            uninstallDemoApplication(serial);
             sessionId = createSession(serial);
             resetApplication(serial);
             List<StepSpec> stepSpecs = parseSteps(spec.path("steps"));
@@ -226,13 +227,35 @@ public class AndroidExecutor {
         capabilities.put("appium:adbExecTimeout", 30_000);
         capabilities.put("appium:uiautomator2ServerLaunchTimeout", 60_000);
         capabilities.put("appium:disableWindowAnimation", true);
-        JsonNode response = request("POST", "/session", Map.of("capabilities",
-                Map.of("alwaysMatch", capabilities)));
+        JsonNode response;
+        try {
+            response = request("POST", "/session", Map.of("capabilities",
+                    Map.of("alwaysMatch", capabilities)));
+        } catch (ExecutionErrorException e) {
+            try {
+                checkConnected(serial);
+            } catch (ExecutionErrorException disconnected) {
+                throw new ExecutionErrorException("Android 设备已断连: " + disconnected.getMessage(), disconnected);
+            }
+            throw e;
+        }
         String sessionId = response.path("sessionId").asText("");
         if (sessionId.isBlank()) {
             throw new ExecutionErrorException("Android UiAutomator2 未返回会话 ID");
         }
         return sessionId;
+    }
+
+    private void uninstallDemoApplication(String serial) {
+        String installed = adb(serial, "shell", "pm", "list", "packages", PACKAGE);
+        if (!installed.contains("package:" + PACKAGE)) {
+            return;
+        }
+        String outcome = adb(serial, "shell", "pm", "uninstall", PACKAGE);
+        if (!outcome.contains("Success")
+                && adb(serial, "shell", "pm", "list", "packages", PACKAGE).contains(PACKAGE)) {
+            throw new ExecutionErrorException("无法卸载旧版 Android 演示应用: " + outcome);
+        }
     }
 
     private void resetApplication(String serial) {

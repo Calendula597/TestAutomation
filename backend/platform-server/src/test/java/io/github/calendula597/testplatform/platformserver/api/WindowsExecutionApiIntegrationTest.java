@@ -399,7 +399,7 @@ class WindowsExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(member, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("PASSED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("PASSED");
         JsonNode result = detail.body().get("attempts").get(0).get("result");
         assertThat(result.get("appType").asText()).isEqualTo("WINFORMS");
         assertThat(result.get("driverName").asText()).isEqualTo("Wincore");
@@ -427,7 +427,7 @@ class WindowsExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(member, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("ASSERTION_FAILED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("ASSERTION_FAILED");
         assertThat(detail.body().toString()).doesNotContain(NOTE_SECRET);
         assertThat(detail.body().get("attempts").get(0).get("result").get("evidence")).isNotEmpty();
     }
@@ -445,7 +445,8 @@ class WindowsExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(member, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("ERROR");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("ERROR");
+        assertThat(detail.body().get("attempts")).as(detail.body().toString()).isNotEmpty();
         assertThat(detail.body().get("attempts").get(0).get("result")
                 .get("steps").get(0).get("status").asText()).isEqualTo("ERROR");
     }
@@ -465,7 +466,7 @@ class WindowsExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(member, jobId, admin);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("CANCELLED");
     }
 
     @Test
@@ -481,6 +482,6 @@ class WindowsExecutionApiIntegrationTest {
 
         HttpResult detail = runQueuedJob(member, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("TIMED_OUT");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("TIMED_OUT");
     }
 }
