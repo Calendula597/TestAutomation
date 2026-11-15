@@ -38,6 +38,7 @@ import java.util.regex.Pattern;
 @Component
 public class AndroidExecutor {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AndroidExecutor.class);
     private static final String PACKAGE = "io.github.calendula597.demo";
     private static final String ELEMENT_KEY = "element-6066-11e4-a52e-4f735466cecf";
     private static final Pattern VARIABLE = Pattern.compile("\\{\\{([A-Za-z0-9_.-]+)}}");
@@ -248,14 +249,17 @@ public class AndroidExecutor {
 
     private void uninstallDemoApplication(String serial) {
         String installed = adb(serial, "shell", "pm", "list", "packages", PACKAGE);
+        log.info("Android 应用重置检查: serial={}, installed={}", serial, installed.trim());
         if (!installed.contains("package:" + PACKAGE)) {
             return;
         }
         String outcome = adb(serial, "shell", "pm", "uninstall", PACKAGE);
-        if (!outcome.contains("Success")
-                && adb(serial, "shell", "pm", "list", "packages", PACKAGE).contains(PACKAGE)) {
-            throw new ExecutionErrorException("无法卸载旧版 Android 演示应用: " + outcome);
+        log.info("Android 应用卸载结果: {}", outcome.trim());
+        String remaining = adb(serial, "shell", "pm", "list", "packages", PACKAGE);
+        if (remaining.contains("package:" + PACKAGE)) {
+            throw new ExecutionErrorException("旧版 Android 演示应用仍在设备上: " + outcome);
         }
+        log.info("Android 旧演示应用已移除");
     }
 
     private void resetApplication(String serial) {

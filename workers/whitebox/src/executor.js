@@ -19,12 +19,27 @@ class ControlError extends Error {
 }
 
 async function checkControl(control) {
-  if (await control.cancelled()) {
+  const status = await control.cancelled();
+  if (status === true || status === "CANCELLED") {
     throw new ControlError("CANCELLED", "执行已取消");
   }
-  if (Date.now() >= control.deadline()) {
+  if (status === "TIMED_OUT" || Date.now() >= control.deadline()) {
     throw new ControlError("TIMED_OUT", "执行超时");
   }
+}
+
+async function outcomeError(error, control) {
+  if (error instanceof ControlError) {
+    return error;
+  }
+  try {
+    await checkControl(control);
+  } catch (controlError) {
+    if (controlError instanceof ControlError) {
+      return controlError;
+    }
+  }
+  return error;
 }
 
 async function runCommand(command, args, cwd, logName, control) {
@@ -48,6 +63,7 @@ async function runCommand(command, args, cwd, logName, control) {
     }
     await closed;
     await new Promise((resolve) => output.end(resolve));
+    await checkControl(control);
   } catch (error) {
     await killTree(child);
     output.destroy();
@@ -200,10 +216,11 @@ export async function executeWhitebox(preparation, control) {
       engineVersion: enginePackage.version,
     };
   } catch (error) {
+    const failure = await outcomeError(error, control);
     outcome = {
-      status: error instanceof ControlError ? error.status : "ERROR",
-      category: error instanceof ControlError ? error.status : "TOOL_ERROR",
-      reason: error.message,
+      status: failure instanceof ControlError ? failure.status : "ERROR",
+      category: failure instanceof ControlError ? failure.status : "TOOL_ERROR",
+      reason: failure.message,
       testResults: { total: 0, passed: 0, failed: 0 },
       coverage: { statements: 0, branches: 0, functions: 0 },
       thresholds: thresholdResults(thresholds, { statements: 0, branches: 0, functions: 0 }),

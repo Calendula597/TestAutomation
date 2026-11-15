@@ -223,7 +223,7 @@ curl http://127.0.0.1:8080/api/v1/ci/v1/projects/1/executions/返回的任务ID 
 
 ## 12. 发布验收与边界
 
-完整实测范围、命令、结果和未验收清单见 [acceptance.md](./acceptance.md)。真实设备、桌面和引擎验收不能由缺少环境的跳过测试替代。GitHub Actions 覆盖通用后端、前端和独立 Windows 作业；Android 使用已准备模拟器的主机进行显式验收。
+完整实测范围、命令、结果和未验收清单见 [acceptance.md](./acceptance.md)。真实设备、桌面和引擎验收不能由缺少环境的跳过测试替代。GitHub Actions 覆盖通用后端、前端和独立 Windows 作业；Android 使用已准备模拟器的主机进行显式验收。Windows 作业在运行器的临时目录启动原生 PostgreSQL 17 + pgvector 0.8.7（UTF-8），避免 Linux 容器限制；生产部署仍使用文档中固定 digest 的 PostgreSQL 16.15 镜像。
 
 ## 故障排查
 

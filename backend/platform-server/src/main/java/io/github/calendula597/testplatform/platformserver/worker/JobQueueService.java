@@ -267,15 +267,23 @@ public class JobQueueService {
         return worker;
     }
 
-    /** Renewal is refused for attempts the worker does not currently own and run. */
+    /** Terminal cancellation and timeout remain observable to their owner without extending the lease. */
     private void renewLease(Worker worker, Long attemptId) {
-        ExecutionAttempt attempt = attemptMapper.selectById(attemptId);
+        ExecutionAttempt attempt = attemptMapper.selectOne(new LambdaQueryWrapper<ExecutionAttempt>()
+                .eq(ExecutionAttempt::getId, attemptId)
+                .last("FOR UPDATE"));
         if (attempt == null) {
             throw new QueueNotFoundException("尝试不存在");
         }
-        if (!worker.getId().equals(attempt.getWorkerId())
-                || !ExecutionAttempt.STATUS_RUNNING.equals(attempt.getStatus())) {
-            throw new QueueOwnershipException("尝试不属于该 Worker 或已结束");
+        if (!worker.getId().equals(attempt.getWorkerId())) {
+            throw new QueueOwnershipException("尝试不属于该 Worker");
+        }
+        if (!ExecutionAttempt.STATUS_RUNNING.equals(attempt.getStatus())) {
+            if (ExecutionAttempt.STATUS_TIMED_OUT.equals(attempt.getStatus())
+                    || ExecutionAttempt.STATUS_CANCELLED.equals(attempt.getStatus())) {
+                return;
+            }
+            throw new QueueOwnershipException("尝试已结束，不能续租");
         }
         ExecutionJob job = jobMapper.selectById(attempt.getJobId());
         attempt.setLeaseExpiresAt(OffsetDateTime.now().plusSeconds(job.getLeaseSeconds()));
@@ -289,15 +297,14 @@ public class JobQueueService {
     @Transactional
     public ReportedResult reportResult(Worker worker, Long attemptId, String status,
                                        Map<String, Object> detail, List<Map<String, Object>> checks) {
-        ExecutionAttempt attempt = attemptMapper.selectById(attemptId);
+        ExecutionAttempt attempt = attemptMapper.selectOne(new LambdaQueryWrapper<ExecutionAttempt>()
+                .eq(ExecutionAttempt::getId, attemptId)
+                .last("FOR UPDATE"));
         if (attempt == null) {
             throw new QueueNotFoundException("尝试不存在");
         }
         if (!worker.getId().equals(attempt.getWorkerId())) {
             throw new QueueOwnershipException("尝试不属于该 Worker");
-        }
-        if (!ExecutionAttempt.STATUS_RUNNING.equals(attempt.getStatus())) {
-            throw new QueueConflictException("该尝试已结束，重复结果被拒绝");
         }
         Set<String> allowed = Set.of(ExecutionAttempt.STATUS_PASSED, ExecutionAttempt.STATUS_ASSERTION_FAILED,
                 ExecutionAttempt.STATUS_ERROR, ExecutionAttempt.STATUS_CANCELLED,
@@ -306,6 +313,15 @@ public class JobQueueService {
             throw new QueueValidationException("结果状态必须是 PASSED、ASSERTION_FAILED、ERROR、CANCELLED 或 TIMED_OUT");
         }
         ExecutionJob job = jobMapper.selectById(attempt.getJobId());
+        if (!ExecutionAttempt.STATUS_RUNNING.equals(attempt.getStatus())) {
+            if (status.equals(attempt.getStatus()) && status.equals(job.getStatus())) {
+                WorkerDiagnostic diagnostic = ExecutionJob.TYPE_DIAGNOSTIC.equals(job.getJobType())
+                        ? diagnosticMapper.selectOne(new LambdaQueryWrapper<WorkerDiagnostic>()
+                                .eq(WorkerDiagnostic::getJobId, job.getId())) : null;
+                return new ReportedResult(job.getStatus(), diagnostic == null ? null : diagnostic.getId());
+            }
+            throw new QueueConflictException("该尝试已结束，状态变更被拒绝");
+        }
         if (Boolean.TRUE.equals(attempt.getCancelRequested()) && !ExecutionAttempt.STATUS_CANCELLED.equals(status)) {
             throw new QueueConflictException("已取消的任务只接受取消结果");
         }

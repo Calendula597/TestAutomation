@@ -52,12 +52,27 @@ function remainingTimeout(control) {
 }
 
 async function checkControl(control) {
-  if (await control.cancelled()) {
+  const status = await control.cancelled();
+  if (status === true || status === "CANCELLED") {
     throw new RunControlError("CANCELLED", "执行已取消");
   }
-  if (Date.now() >= control.deadline()) {
+  if (status === "TIMED_OUT" || Date.now() >= control.deadline()) {
     throw new RunControlError("TIMED_OUT", "执行超时");
   }
+}
+
+async function outcomeError(error, control) {
+  if (error instanceof RunControlError) {
+    return error;
+  }
+  try {
+    await checkControl(control);
+  } catch (controlError) {
+    if (controlError instanceof RunControlError) {
+      return controlError;
+    }
+  }
+  return error;
 }
 
 async function waitInterruptibly(milliseconds, control) {
@@ -146,11 +161,12 @@ async function runStep(app, page, step, variables, sensitiveValues, control) {
       outcome.status = "PASSED";
     }
   } catch (error) {
-    if (error instanceof RunControlError) {
-      throw error;
+    const failure = await outcomeError(error, control);
+    if (failure instanceof RunControlError) {
+      throw failure;
     }
     outcome.status = "ERROR";
-    outcome.error = mask(error.message, sensitiveValues);
+    outcome.error = mask(failure.message, sensitiveValues);
   }
   return outcome;
 }
@@ -247,6 +263,7 @@ export async function executeElectron(preparation, control) {
       }
     }
     if (!outcome) {
+      await checkControl(control);
       outcome = {
         status: "PASSED",
         reason: null,
@@ -255,9 +272,10 @@ export async function executeElectron(preparation, control) {
       };
     }
   } catch (error) {
+    const failure = await outcomeError(error, control);
     outcome = {
-      status: error instanceof RunControlError ? error.status : "ERROR",
-      reason: mask(error.message, sensitiveValues),
+      status: failure instanceof RunControlError ? failure.status : "ERROR",
+      reason: mask(failure.message, sensitiveValues),
       steps,
       durationMs: Date.now() - startedAt,
     };

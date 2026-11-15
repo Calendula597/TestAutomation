@@ -99,6 +99,7 @@ public class WorkerProtocolController {
                 Map<String, Object> a = new LinkedHashMap<>();
                 a.put("attemptId", attempt.getId());
                 a.put("cancelRequested", attempt.getCancelRequested());
+                a.put("status", attempt.getStatus());
                 a.put("leaseExpiresAt", attempt.getLeaseExpiresAt() == null
                         ? null : attempt.getLeaseExpiresAt().toString());
                 attempts.add(a);

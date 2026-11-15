@@ -31,7 +31,10 @@ async function post(path, body) {
 async function heartbeat(attemptId) {
   const response = await post("/api/v1/worker/v1/heartbeat", { attemptIds: [attemptId] });
   const attempt = response.attempts.find((item) => item.attemptId === attemptId);
-  return Boolean(attempt?.cancelRequested);
+  if (attempt?.cancelRequested) {
+    return "CANCELLED";
+  }
+  return attempt?.status || "RUNNING";
 }
 
 async function runClaimedJob(claimed) {

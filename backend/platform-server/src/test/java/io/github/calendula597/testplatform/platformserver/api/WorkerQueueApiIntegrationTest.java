@@ -43,8 +43,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * Lost-lease recovery, cancellation and timeout are exercised against the
  * real sweeper with short test intervals. The test acts as the Worker HTTP
- * client; claim atomicity and duplicate-report rejection are asserted
- * through the public protocol only.
+ * client; claim atomicity, terminal-report idempotency and stale-report
+ * rejection are asserted through the public protocol only.
  *
  * Test credentials are generated at runtime — no secrets in source.
  */
@@ -509,7 +509,23 @@ class WorkerQueueApiIntegrationTest {
                 "SELECT status FROM execution_attempt WHERE id = ?", String.class, won.attemptId()))
                 .isEqualTo("TIMED_OUT");
 
-        // A timed-out attempt no longer accepts results.
+        HttpResult terminalHeartbeat = workerPost(WORKER_TOKENS.get(worker1),
+                "/api/v1/worker/v1/heartbeat", Map.of("attemptIds", List.of(won.attemptId())));
+        assertThat(terminalHeartbeat.status()).isEqualTo(200);
+        assertThat(terminalHeartbeat.body().get("attempts").get(0).get("status").asText())
+                .isEqualTo("TIMED_OUT");
+
+        String originalResult = jdbc.queryForObject(
+                "SELECT result FROM execution_attempt WHERE id = ?", String.class, won.attemptId());
+        HttpResult timeout = workerPost(WORKER_TOKENS.get(worker1),
+                "/api/v1/worker/v1/attempts/" + won.attemptId() + "/result",
+                Map.of("status", "TIMED_OUT", "detail", Map.of("reason", "执行超时")));
+        assertThat(timeout.status()).isEqualTo(200);
+        assertThat(timeout.body().get("jobStatus").asText()).isEqualTo("TIMED_OUT");
+        assertThat(jdbc.queryForObject(
+                "SELECT result FROM execution_attempt WHERE id = ?", String.class, won.attemptId()))
+                .isEqualTo(originalResult);
+
         HttpResult late = workerPost(WORKER_TOKENS.get(worker1),
                 "/api/v1/worker/v1/attempts/" + won.attemptId() + "/result",
                 Map.of("status", "PASSED"));
