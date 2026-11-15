@@ -49,6 +49,7 @@ public class WindowsExecutor {
     private final Path appiumHome;
     private final String powerShellPath;
     private final Path demoScript;
+    private final Path demoExecutable;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5)).build();
 
@@ -59,7 +60,8 @@ public class WindowsExecutor {
                            @Value("${app.worker.appium-home:}") String appiumHome,
                            @Value("${app.worker.powershell-path:C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}")
                            String powerShellPath,
-                           @Value("${app.worker.windows-demo-script:}") String demoScript) {
+                           @Value("${app.worker.windows-demo-script:}") String demoScript,
+                           @Value("${app.worker.windows-demo-executable:}") String demoExecutable) {
         this.versionMapper = versionMapper;
         this.environmentMapper = environmentMapper;
         this.environmentVersionMapper = environmentVersionMapper;
@@ -70,6 +72,7 @@ public class WindowsExecutor {
         this.appiumHome = appiumHome == null || appiumHome.isBlank() ? null : Path.of(appiumHome);
         this.powerShellPath = powerShellPath;
         this.demoScript = demoScript == null || demoScript.isBlank() ? null : Path.of(demoScript);
+        this.demoExecutable = demoExecutable == null || demoExecutable.isBlank() ? null : Path.of(demoExecutable);
     }
 
     public record WindowsOutcome(String status, String reason, List<Map<String, Object>> steps,
@@ -110,8 +113,9 @@ public class WindowsExecutor {
             if (!"demo-winforms".equals(spec.path("app").asText())) {
                 throw new ExecutionErrorException("仅支持显式选择的 WinForms 演示应用");
             }
-            if (demoScript == null || !Files.isRegularFile(demoScript)) {
-                throw new ExecutionErrorException("原生 Windows 演示脚本未配置或不存在");
+            if (demoExecutable == null ? demoScript == null || !Files.isRegularFile(demoScript)
+                    : !Files.isRegularFile(demoExecutable)) {
+                throw new ExecutionErrorException("原生 Windows 演示程序未配置或不存在");
             }
             List<StepSpec> stepSpecs = parseSteps(spec.path("steps"));
             Environment environment = environmentMapper.selectById(environmentId);
@@ -189,9 +193,12 @@ public class WindowsExecutor {
         Map<String, Object> capabilities = new LinkedHashMap<>();
         capabilities.put("platformName", "Windows");
         capabilities.put("appium:automationName", "Wincore");
-        capabilities.put("appium:app", powerShellPath);
-        capabilities.put("appium:appArguments", "-NoProfile -ExecutionPolicy Bypass -File "
-                + demoScript.toAbsolutePath().normalize());
+        capabilities.put("appium:app", demoExecutable == null ? powerShellPath
+                : demoExecutable.toAbsolutePath().normalize().toString());
+        if (demoExecutable == null) {
+            capabilities.put("appium:appArguments", "-NoProfile -ExecutionPolicy Bypass -File "
+                    + demoScript.toAbsolutePath().normalize());
+        }
         capabilities.put("appium:appEnvironment", Map.of("NATIVE_DEMO_USER_DATA", userData.toString()));
         capabilities.put("appium:shouldCloseApp", true);
         capabilities.put("appium:ms:forcequit", true);
@@ -346,7 +353,7 @@ public class WindowsExecutor {
     private void killAbandonedDemoProcesses() {
         ProcessHandle.allProcesses().forEach(process -> {
             String command = process.info().commandLine().orElse("").toLowerCase();
-            if (command.contains("nativedemo.ps1")) {
+            if (command.contains("nativedemo")) {
                 process.destroyForcibly();
             }
         });

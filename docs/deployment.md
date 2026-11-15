@@ -85,12 +85,14 @@ npm start
 
 ```bash
 cd workers/appium
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File demo/build-native.ps1
+export APP_WORKER_WINDOWS_DEMO_EXECUTABLE="$PWD/demo/bin/NativeDemo.exe"
 export APPIUM_HOME=当前工作区/workers/appium/.appium
 npm ci
 npm start
 ```
 
-服务默认监听 `127.0.0.1:4723`。主 Worker 使用 `APP_WORKER_APPIUM_BASE_URL` 指向该服务，并通过 `APPIUM_HOME` 读取 WinCore 的真实版本。演示 WinForms 应用由系统签名的 PowerShell 宿主启动，可用 `APP_WORKER_WINDOWS_DEMO_SCRIPT` 指定脚本绝对路径；`APP_WORKER_POWERSHELL_PATH` 可覆盖宿主路径。
+服务默认监听 `127.0.0.1:4723`。主 Worker 使用 `APP_WORKER_APPIUM_BASE_URL` 指向该服务，并通过 `APPIUM_HOME` 读取 WinCore 的真实版本。默认演示是 .NET Framework 编译的原生 WinForms EXE，使用 `STAThread` 和标准消息循环，可用 `APP_WORKER_WINDOWS_DEMO_EXECUTABLE` 指定绝对路径。旧版 PowerShell 演示可通过 `APP_WORKER_WINDOWS_DEMO_SCRIPT` 回退，`APP_WORKER_POWERSHELL_PATH` 可覆盖宿主路径。
 
 WinCore 直接操作 Windows UI Automation，不使用已弃用的 Windows Driver/WinAppDriver。报告记录应用类型、WinCore 版本、步骤失败原因和截图。原生 Windows 验收只在 Windows 主机运行，Linux CI 不会将其标记为已验证。
 

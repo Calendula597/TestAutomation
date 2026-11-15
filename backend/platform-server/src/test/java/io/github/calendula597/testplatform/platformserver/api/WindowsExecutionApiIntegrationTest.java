@@ -99,8 +99,8 @@ class WindowsExecutionApiIntegrationTest {
         registry.add("spring.datasource.username", WindowsExecutionApiIntegrationTest::databaseUsername);
         registry.add("spring.datasource.password", WindowsExecutionApiIntegrationTest::databasePassword);
         registry.add("app.secrets.master-key", () -> MASTER_KEY);
-        registry.add("app.worker.windows-demo-script",
-                () -> WORKSPACE.resolve("workers/appium/demo/NativeDemo.ps1").toString());
+        registry.add("app.worker.windows-demo-executable",
+                () -> WORKSPACE.resolve("workers/appium/demo/bin/NativeDemo.exe").toString());
         registry.add("app.worker.appium-home", () -> WORKSPACE.resolve("workers/appium/.appium").toString());
         registry.add("app.worker.sweep-interval-ms", () -> "30000");
         registry.add("app.evidence.dir", () -> Path.of(System.getProperty("java.io.tmpdir"),
@@ -110,6 +110,10 @@ class WindowsExecutionApiIntegrationTest {
     @BeforeAll
     static void startAppium() throws Exception {
         databaseUrl();
+        Process build = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", WORKSPACE.resolve("workers/appium/demo/build-native.ps1").toString())
+                .inheritIO().start();
+        assertThat(build.waitFor()).as("构建原生 WinForms 演示 EXE").isEqualTo(0);
         Path node = WORKSPACE.resolve("workers/appium/node_modules/node/bin/node.exe");
         Path appium = WORKSPACE.resolve("workers/appium/node_modules/appium/index.js");
         ProcessBuilder builder = new ProcessBuilder(node.toString(), appium.toString(),
@@ -331,7 +335,7 @@ class WindowsExecutionApiIntegrationTest {
     private java.util.Set<Long> nativeProcesses() {
         return ProcessHandle.allProcesses()
                 .filter(process -> process.info().command().orElse("")
-                        .toLowerCase().contains("powershell"))
+                        .toLowerCase().contains("nativedemo"))
                 .map(ProcessHandle::pid)
                 .collect(java.util.stream.Collectors.toSet());
     }

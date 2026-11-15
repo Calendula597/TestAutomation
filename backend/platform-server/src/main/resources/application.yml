@@ -72,6 +72,7 @@ app:
     android-demo-apk: ${APP_WORKER_ANDROID_DEMO_APK:}
     powershell-path: ${APP_WORKER_POWERSHELL_PATH:C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe}
     windows-demo-script: ${APP_WORKER_WINDOWS_DEMO_SCRIPT:}
+    windows-demo-executable: ${APP_WORKER_WINDOWS_DEMO_EXECUTABLE:}
     k6-path: ${APP_WORKER_K6_PATH:}
     k6-image: ${APP_WORKER_K6_IMAGE:grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276}
   backup:

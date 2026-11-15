@@ -94,6 +94,9 @@ jobs:
       - name: Install Appium and WinCore
         working-directory: workers/appium
         run: npm ci
+      - name: Build native Windows demo
+        working-directory: workers/appium
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File demo/build-native.ps1
       - name: Native Windows acceptance
         working-directory: backend
         run: mvn -B --no-transfer-progress -pl platform-server '-Dtest=WindowsExecutionApiIntegrationTest' '-Dlogging.level.org.springframework.security=INFO' test
