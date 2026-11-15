@@ -76,7 +76,6 @@ app:
     k6-image: ${APP_WORKER_K6_IMAGE:grafana/k6:2.4.0@sha256:d41bb79cd8de5a7ad619b53570e3712633e8bff0937010a5c6c57a4747e7a276}
   backup:
     dir: ${APP_BACKUP_DIR:./backups}
-    postgres-image: ${APP_BACKUP_POSTGRES_IMAGE:pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a}
   evidence:
     # Screenshots, traces and downloads must be stored on a persistent volume.
     dir: ${APP_EVIDENCE_DIR:./evidence}

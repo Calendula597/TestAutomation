@@ -17,8 +17,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -44,7 +42,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @EnabledOnOs(OS.WINDOWS)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class WindowsExecutionApiIntegrationTest {
 
@@ -55,9 +52,7 @@ class WindowsExecutionApiIntegrationTest {
     private static final String NOTE_SECRET = "windows-secret-" + UUID.randomUUID();
     private static final Path WORKSPACE = Path.of("").toAbsolutePath().resolve("../..").normalize();
 
-    @Container
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"));
+    private static PostgreSQLContainer postgres;
 
     private static final String MASTER_KEY = newMasterKey();
     private static final Map<String, String> WORKER_TOKENS = new HashMap<>();
@@ -69,11 +64,40 @@ class WindowsExecutionApiIntegrationTest {
         return Base64.getEncoder().encodeToString(key);
     }
 
+    private static String databaseUrl() {
+        String configured = System.getenv("NATIVE_TEST_DB_URL");
+        if (configured != null && !configured.isBlank()) {
+            return configured;
+        }
+        if (postgres == null) {
+            postgres = new PostgreSQLContainer(
+                    DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"));
+            postgres.start();
+        }
+        return postgres.getJdbcUrl();
+    }
+
+    private static String databaseUsername() {
+        if (System.getenv("NATIVE_TEST_DB_URL") == null) {
+            databaseUrl();
+            return postgres.getUsername();
+        }
+        return System.getenv("NATIVE_TEST_DB_USERNAME");
+    }
+
+    private static String databasePassword() {
+        if (System.getenv("NATIVE_TEST_DB_URL") == null) {
+            databaseUrl();
+            return postgres.getPassword();
+        }
+        return System.getenv("NATIVE_TEST_DB_PASSWORD");
+    }
+
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.datasource.url", WindowsExecutionApiIntegrationTest::databaseUrl);
+        registry.add("spring.datasource.username", WindowsExecutionApiIntegrationTest::databaseUsername);
+        registry.add("spring.datasource.password", WindowsExecutionApiIntegrationTest::databasePassword);
         registry.add("app.secrets.master-key", () -> MASTER_KEY);
         registry.add("app.worker.windows-demo-script",
                 () -> WORKSPACE.resolve("workers/appium/demo/NativeDemo.ps1").toString());
@@ -85,6 +109,7 @@ class WindowsExecutionApiIntegrationTest {
 
     @BeforeAll
     static void startAppium() throws Exception {
+        databaseUrl();
         Path node = WORKSPACE.resolve("workers/appium/node_modules/node/bin/node.exe");
         Path appium = WORKSPACE.resolve("workers/appium/node_modules/appium/index.js");
         ProcessBuilder builder = new ProcessBuilder(node.toString(), appium.toString(),
@@ -117,6 +142,9 @@ class WindowsExecutionApiIntegrationTest {
     static void stopAppium() {
         if (APPIUM != null) {
             APPIUM.destroyForcibly();
+        }
+        if (postgres != null) {
+            postgres.stop();
         }
     }
 

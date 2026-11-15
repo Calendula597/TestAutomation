@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -26,28 +27,24 @@ public class BackupService {
     private final String jdbcUrl;
     private final String username;
     private final String password;
-    private final String postgresImage;
 
     public BackupService(@Value("${app.backup.dir:./backups}") String backupDir,
                          @Value("${app.evidence.dir:./evidence}") String evidenceDir,
                          @Value("${spring.datasource.url}") String jdbcUrl,
                          @Value("${spring.datasource.username}") String username,
-                         @Value("${spring.datasource.password}") String password,
-                         @Value("${app.backup.postgres-image:pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a}")
-                         String postgresImage) {
+                         @Value("${spring.datasource.password}") String password) {
         this.backupDir = Path.of(backupDir).toAbsolutePath().normalize();
         this.evidenceDir = Path.of(evidenceDir).toAbsolutePath().normalize();
         this.jdbcUrl = jdbcUrl;
         this.username = username;
         this.password = password;
-        this.postgresImage = postgresImage;
     }
 
     public Map<String, Object> createBackup() throws Exception {
         Files.createDirectories(backupDir);
         Path sql = backupDir.resolve("dump-" + UUID.randomUUID() + ".sql");
         try {
-            runDocker(List.of("pg_dump"), sql);
+            runDatabaseCommand(List.of("pg_dump"), sql);
             Path archive = backupDir.resolve("backup-" + UUID.randomUUID() + ".zip");
             try (ZipOutputStream zip = new ZipOutputStream(new FileOutputStream(archive.toFile()))) {
                 ZipEntry database = new ZipEntry("database.sql");
@@ -88,12 +85,12 @@ public class BackupService {
         Files.createDirectories(restoreDirectory);
         extract(archive, restoreDirectory);
         String database = "restore_" + UUID.randomUUID().toString().replace("-", "");
-        runDocker(List.of("createdb", database), null);
+        runDatabaseCommand(List.of("createdb", database), null);
         try {
-            runDocker(List.of("psql", "-d", database, "-f", "/backup/database.sql"), null, restoreDirectory);
+            runDatabaseCommand(List.of("psql", "-d", database), restoreDirectory.resolve("database.sql"));
         } catch (Exception e) {
             try {
-                runDocker(List.of("dropdb", database), null);
+                runDatabaseCommand(List.of("dropdb", database), null);
             } catch (Exception ignored) {
             }
             throw e;
@@ -126,43 +123,77 @@ public class BackupService {
         }
     }
 
-    private void runDocker(List<String> command, Path output) throws Exception {
-        runDocker(command, output, backupDir);
+    private String databaseContainer() throws Exception {
+        URI uri = URI.create(jdbcUrl.replace("jdbc:", ""));
+        String port = uri.getPort() == -1 ? "5432" : String.valueOf(uri.getPort());
+        Process process = new ProcessBuilder("docker", "ps", "--format", "{{.ID}} {{.Ports}}")
+                .redirectErrorStream(true).start();
+        if (!process.waitFor(15, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IOException("查询数据库容器超时");
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        List<String> matches = output.lines().filter(line -> line.contains(":" + port + "->"))
+                .map(line -> line.split("\\s+")[0]).filter(id -> id.matches("[0-9a-f]{12,64}")).toList();
+        if (process.exitValue() != 0 || matches.size() != 1) {
+            throw new IOException("无法唯一定位当前 PostgreSQL 容器，映射端口=" + port + "，结果=" + output);
+        }
+        return matches.get(0);
     }
 
-    private void runDocker(List<String> command, Path output, Path mountDirectory) throws Exception {
-        URI uri = URI.create(jdbcUrl.replace("jdbc:", ""));
-        List<String> args = new ArrayList<>(List.of("docker", "run", "--rm",
-                "--add-host", "host.docker.internal:host-gateway",
-                "-e", "PGPASSWORD", "-v", mountDirectory + ":/backup", postgresImage));
-        String databaseHost = "host.docker.internal";
-        String port = uri.getPort() == -1 ? "5432" : String.valueOf(uri.getPort());
-        if ("createdb".equals(command.get(0))) {
-            args.addAll(List.of("createdb", "-h", databaseHost, "-p", port, "-U", username, command.get(1)));
-        } else if ("dropdb".equals(command.get(0))) {
-            args.addAll(List.of("dropdb", "--if-exists", "-h", databaseHost, "-p", port, "-U", username, command.get(1)));
-        } else if ("psql".equals(command.get(0))) {
-            args.addAll(List.of("psql", "-h", databaseHost, "-p", port, "-U", username,
-                    "-v", "ON_ERROR_STOP=1", command.get(1), command.get(2), command.get(3), command.get(4)));
-        } else {
-            args.addAll(List.of("pg_dump", "-h", databaseHost, "-p", port, "-U", username, uri.getPath().substring(1)));
+    private void runDatabaseCommand(List<String> command, Path sqlFile) throws Exception {
+        String container = databaseContainer();
+        List<String> args = new ArrayList<>(List.of("docker", "exec", "-e", "PGPASSWORD"));
+        if ("psql".equals(command.get(0))) {
+            args.add("-i");
         }
-        Path log = output == null ? backupDir.resolve("backup-command-" + UUID.randomUUID() + ".log") : null;
-        ProcessBuilder builder = new ProcessBuilder(args).redirectErrorStream(true)
-                .redirectOutput(output == null ? log.toFile() : output.toFile());
+        args.add(container);
+        String database = URI.create(jdbcUrl.replace("jdbc:", "")).getPath().substring(1);
+        switch (command.get(0)) {
+            case "pg_dump" -> args.addAll(List.of("pg_dump", "-U", username, database));
+            case "createdb" -> args.addAll(List.of("createdb", "-U", username, command.get(1)));
+            case "dropdb" -> args.addAll(List.of("dropdb", "--if-exists", "-U", username, command.get(1)));
+            case "psql" -> args.addAll(List.of("psql", "-U", username, "-v", "ON_ERROR_STOP=1",
+                    command.get(1), command.get(2), "-f", "-"));
+            default -> throw new IllegalArgumentException("不支持的数据库备份命令");
+        }
+        Path log = backupDir.resolve("backup-command-" + UUID.randomUUID() + ".log");
+        ProcessBuilder builder = new ProcessBuilder(args);
+        if ("pg_dump".equals(command.get(0))) {
+            builder.redirectOutput(sqlFile.toFile()).redirectError(log.toFile());
+        } else {
+            builder.redirectErrorStream(true).redirectOutput(log.toFile());
+        }
+        if ("psql".equals(command.get(0))) {
+            builder.redirectInput(sqlFile.toFile());
+        }
         builder.environment().put("PGPASSWORD", password);
         Process process = builder.start();
-        process.getOutputStream().close();
         if (!process.waitFor(120, TimeUnit.SECONDS)) {
             process.destroyForcibly();
             throw new IOException("数据库备份命令超时");
         }
         if (process.exitValue() != 0) {
-            String details = output == null && Files.isRegularFile(log) ? Files.readString(log) : "命令执行失败";
+            String details = Files.isRegularFile(log) ? Files.readString(log) : "命令执行失败";
             throw new IOException("数据库备份命令失败: " + details);
         }
-        if (log != null) {
-            Files.deleteIfExists(log);
+        if ("pg_dump".equals(command.get(0))) {
+            try (var lines = Files.lines(sqlFile);
+                 var channel = java.nio.channels.FileChannel.open(sqlFile)) {
+                if (!lines.limit(2).toList().equals(List.of("--", "-- PostgreSQL database dump"))) {
+                    throw new IOException("数据库备份内容不完整");
+                }
+                java.nio.ByteBuffer tail = java.nio.ByteBuffer.allocate((int) Math.min(256, channel.size()));
+                channel.position(channel.size() - tail.capacity());
+                while (tail.hasRemaining()) {
+                    channel.read(tail);
+                }
+                if (!new String(tail.array(), StandardCharsets.UTF_8)
+                        .contains("PostgreSQL database dump complete")) {
+                    throw new IOException("数据库备份内容不完整");
+                }
+            }
         }
+        Files.deleteIfExists(log);
     }
 }

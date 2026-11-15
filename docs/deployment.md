@@ -185,7 +185,7 @@ mvn -B -pl platform-server -Dandroid.e2e=true \
 
 项目负责人可通过 `GET/PUT /api/v1/projects/{projectId}/evidence-policy` 查看或设置 1–365 天的证据保留期，默认 30 天。每个文件按其执行所属项目独立计算保留期。清理只删除附件，保留执行摘要、不可变用例版本和审计；`evidence_pruned` 记录清理结果，已清理证据下载返回 410。系统每小时自动清理，管理员也可调用 `POST /api/v1/system/evidence-retention/sweep` 立即执行。
 
-管理员通过 `POST /api/v1/system/backups` 创建 ZIP，包含 PostgreSQL 的 `pg_dump` 输出与证据目录。备份工具镜像固定为部署使用的 PostgreSQL 16.15 + pgvector 摘要。通过 `POST /api/v1/system/restore` 提交返回的 `filename`，系统会恢复到**新的独立数据库和附件目录**，不覆盖正在运行的环境。
+管理员通过 `POST /api/v1/system/backups` 创建 ZIP，包含 PostgreSQL 的 `pg_dump` 输出与证据目录。备份与恢复使用当前数据库容器自带、版本一致的客户端，避免嵌套拉取工具镜像或混用不同主版本；SQL 与错误日志分开，并校验备份完整性。通过 `POST /api/v1/system/restore` 提交返回的 `filename`，系统会恢复到**新的独立数据库和附件目录**，不覆盖正在运行的环境。
 
 按接口返回的数据库名和 `evidenceDir` 启动隔离实例，使用原部署的密钥主密钥：
 
@@ -199,7 +199,7 @@ export APP_BACKUP_DIR=/绝对路径/backups
 mvn -B spring-boot:run -pl platform-server   # backend/
 ```
 
-然后使用备份中的账号登录，实际查询历史执行并下载证据。`APP_BACKUP_POSTGRES_IMAGE` 可覆盖经审核的工具镜像；生产环境请持久化并限制 `APP_BACKUP_DIR`、`APP_EVIDENCE_DIR` 的访问权限。测试已验证空数据库与附件目录恢复、独立应用登录和证据读取，而不只验证 ZIP 存在。
+然后使用备份中的账号登录，实际查询历史执行并下载证据。生产环境请持久化并限制 `APP_BACKUP_DIR`、`APP_EVIDENCE_DIR` 的访问权限，并保证后端可以通过 Docker 定位当前 PostgreSQL 容器。测试已验证空数据库与附件目录恢复、独立应用登录和证据读取，而不只验证 ZIP 存在。
 
 ## 11. 定时与 CI 触发
 

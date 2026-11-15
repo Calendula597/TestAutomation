@@ -41,6 +41,8 @@ jobs:
     runs-on: windows-latest
     env:
       APPIUM_HOME: ${{ github.workspace }}/workers/appium/.appium
+      NATIVE_TEST_DB_URL: jdbc:postgresql://127.0.0.1:55433/test
+      NATIVE_TEST_DB_USERNAME: test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -53,6 +55,36 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: workers/appium/package-lock.json
+      - name: Start native PostgreSQL with pgvector
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:PGROOT = "C:\Program Files\PostgreSQL\17"
+          $data = Join-Path $env:RUNNER_TEMP "native-postgres-data"
+          $password = [guid]::NewGuid().ToString()
+          $passwordFile = Join-Path $env:RUNNER_TEMP "native-postgres-password.txt"
+          Set-Content -Path $passwordFile -Value $password -NoNewline
+          $env:PGPASSWORD = $password
+          & "$env:PGROOT/bin/initdb.exe" -D $data -U test --pwfile $passwordFile --auth=scram-sha-256
+          if ($LASTEXITCODE) { throw "initdb failed" }
+          & "$env:PGROOT/bin/pg_ctl.exe" -D $data -l "$data/server.log" -o "-p 55433 -c listen_addresses='127.0.0.1'" start
+          if ($LASTEXITCODE) { throw "pg_ctl failed" }
+          for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            & "$env:PGROOT/bin/pg_isready.exe" -h 127.0.0.1 -p 55433 -U test
+            if ($LASTEXITCODE -eq 0) { break }
+            Start-Sleep -Seconds 1
+          }
+          if ($LASTEXITCODE) { Get-Content "$data/server.log"; throw "PostgreSQL did not start" }
+          & "$env:PGROOT/bin/createdb.exe" -h 127.0.0.1 -p 55433 -U test test
+          if ($LASTEXITCODE) { throw "createdb failed" }
+          $source = Join-Path $env:RUNNER_TEMP "pgvector"
+          git clone --depth 1 --branch v0.8.7 https://github.com/pgvector/pgvector.git $source
+          if ($LASTEXITCODE) { throw "pgvector clone failed" }
+          $vcvars = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          $command = '"{0}" && cd /d "{1}" && nmake /F Makefile.win && nmake /F Makefile.win install' -f $vcvars, $source
+          & cmd.exe /d /s /c $command
+          if ($LASTEXITCODE) { throw "pgvector build failed" }
+          Add-Content -Path $env:GITHUB_ENV -Value "NATIVE_TEST_DB_PASSWORD=$password"
       - name: Install Appium and WinCore
         working-directory: workers/appium
         run: npm ci

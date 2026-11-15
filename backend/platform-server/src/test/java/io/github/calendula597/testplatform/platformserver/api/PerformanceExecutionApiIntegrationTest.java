@@ -76,7 +76,7 @@ class PerformanceExecutionApiIntegrationTest {
 
     @BeforeAll
     static void startDemo() throws Exception {
-        DEMO = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        DEMO = HttpServer.create(new InetSocketAddress(0), 0);
         demoPort = DEMO.getAddress().getPort();
         DEMO.createContext("/ok", exchange -> {
             byte[] body = "ok".getBytes(StandardCharsets.UTF_8);
