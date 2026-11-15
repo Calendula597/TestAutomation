@@ -15,7 +15,7 @@
 | 原生 Windows | Appium 4.0.0 + WinCore 4.1.1 驱动 WinForms 演示应用，记录应用类型、驱动版本、截图、断言失败与基础设施错误，并验证取消、超时及进程清理。 |
 | Android | 原生 APK 构建及签名验证；在 Android 14 x86_64 模拟器上以 UiAutomator2 9.1.0 完成安装、启动、输入、点击、断言和真实截图。5 个测试全部通过，覆盖不同签名旧包卸载、包不存在返回码、显式应用重置、同设备并发互斥、会话删除、设备与驱动信息、断连 `ERROR` 和资源清理。 |
 | k6 性能 | 使用固定 digest 的 k6 2.4.0 镜像执行真实阶段负载，7 个测试通过；检查吞吐、错误率、P90/P95/P99、阈值、权限、目标限制、取消与容器清理。进程失败与阈值失败分别处理。 |
-| TS/JS 白盒 | 隔离目录中运行 Vitest 5.1.0 + V8 单测和 HTTP 集成测试，7 个测试通过；检查语句/分支/函数覆盖率、版本化排除、覆盖门槛、实际超时 `TIMED_OUT` 及 `TEST_FAILED`、`COVERAGE_FAILED`、`TOOL_ERROR`。 |
+| TS/JS 白盒 | 隔离目录中运行 Vitest 5.1.0 + V8 单测和 HTTP 集成测试，7 个测试通过；检查语句/分支/函数覆盖率、版本化排除、覆盖门槛、实际超时 `TIMED_OUT`、进程树终止与隔离目录清理，以及 `TEST_FAILED`、`COVERAGE_FAILED`、`TOOL_ERROR`。 |
 | 导出与保留 | HTML、JUnit XML、Excel、CSV、原始输出具备统一项目权限；JUnit 使用秒。6 个报告测试通过，包含默认 30 天、按所属项目清理、保留摘要与审计、下载 410 和非法输入。 |
 | PostgreSQL 与附件恢复 | 真实 `pg_dump`/`psql` 恢复至新数据库和附件目录，并在该空环境中启动独立应用，使用备份账号登录、读取历史执行和下载原证据。不是仅检查 ZIP 存在。 |
 | 定时与 CI | 4 个双项目集成测试通过：明确时区、重复计划拒绝、默认不重叠、原子触发、令牌作用域/到期/撤销、跨项目拒绝、幂等键冲突、真实失败查询。另有 2 个用户配置页面测试。 |
@@ -24,8 +24,8 @@
 
 ## 发布追踪（2026-11-16）
 
-- 实现基线为 `be249c80e0f41275fc6c063772c4419a20b328e5`。对应 [GitHub Actions 验收](https://github.com/Calendula597/TestAutomation/actions/runs/43754495143) 的 backend、native-windows、frontend、deploy-config 四个作业全部通过。
-- 从该提交新建独立 Git 检出，按部署文档安装依赖、构建演示应用并执行 `mvn verify`：151 个测试，0 失败、0 错误，默认仅跳过需要专用模拟器的 5 个 Android 测试；这 5 个测试随后在 Android 14 模拟器上全部通过，包含不同签名旧包的强制卸载。前端在同一干净检出执行 `npm ci && npm run check`，39 个测试及生产构建通过。
+- 实现基线为 `63eefe5094b1f5e8d3e392306397df4120e60211`。对应 [GitHub Actions 验收](https://github.com/Calendula597/TestAutomation/actions/runs/43758676150) 的 backend、native-windows、frontend、deploy-config 四个作业全部通过。
+- 从 `be249c8` 新建独立 Git 检出，按部署文档安装依赖、构建演示应用并执行 `mvn verify`；当前实现基线另经 `mvn clean verify` 验证。两次均为 151 个测试，0 失败、0 错误，默认仅跳过需要专用模拟器的 5 个 Android 测试；这 5 个测试随后在 Android 14 模拟器上全部通过，包含不同签名旧包的强制卸载。前端在同一干净检出执行 `npm ci && npm run check`，39 个测试及生产构建通过。
 - Ubuntu CI 的 151 个测试中 11 个因宿主能力跳过（Android 5 个、原生 Windows 6 个）；原生 Windows 由独立 Windows 作业完成真实验收，Android 由本机专用模拟器完成，未将跳过项写成通过。
 - 使用隔离 Compose 数据库、独立后端和前端端口进行浏览器实测：初始化管理员、登录、健康检查、创建项目、打开定时与 CI 页面、签发并撤销 CI 令牌均成功；临时浏览器页已关闭，隔离数据库与临时服务已清理。
 
