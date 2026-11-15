@@ -248,18 +248,17 @@ public class AndroidExecutor {
     }
 
     private void uninstallDemoApplication(String serial) {
-        String installed = adb(serial, "shell", "pm", "list", "packages", PACKAGE);
-        log.info("Android 应用重置检查: serial={}, installed={}", serial, installed.trim());
-        if (!installed.contains("package:" + PACKAGE)) {
-            return;
+        checkConnected(serial);
+        AdbResult uninstall = adbResult(serial, "shell", "pm", "uninstall", PACKAGE);
+        AdbResult remaining = adbResult(serial, "shell", "pm", "path", PACKAGE);
+        checkConnected(serial);
+        log.info("Android 应用卸载: serial={}, outcome={}, remaining={}",
+                serial, uninstall.output().trim(), remaining.output().trim());
+        // Android returns exit code 1 with no output when pm path cannot find the package.
+        if (!remaining.output().isBlank() || remaining.exitCode() > 1) {
+            throw new ExecutionErrorException("无法确认旧版 Android 演示应用已卸载: "
+                    + uninstall.output().trim() + " " + remaining.output().trim());
         }
-        String outcome = adb(serial, "shell", "pm", "uninstall", PACKAGE);
-        log.info("Android 应用卸载结果: {}", outcome.trim());
-        String remaining = adb(serial, "shell", "pm", "list", "packages", PACKAGE);
-        if (remaining.contains("package:" + PACKAGE)) {
-            throw new ExecutionErrorException("旧版 Android 演示应用仍在设备上: " + outcome);
-        }
-        log.info("Android 旧演示应用已移除");
     }
 
     private void resetApplication(String serial) {
@@ -352,7 +351,18 @@ public class AndroidExecutor {
         }
     }
 
+    private record AdbResult(int exitCode, String output) {
+    }
+
     private String adb(String serial, String... arguments) {
+        AdbResult result = adbResult(serial, arguments);
+        if (result.exitCode() != 0) {
+            throw new ExecutionErrorException("Android 设备已断连或命令失败: " + result.output().trim());
+        }
+        return result.output();
+    }
+
+    private AdbResult adbResult(String serial, String... arguments) {
         List<String> command = new ArrayList<>();
         command.add(adb.toString());
         command.add("-s");
@@ -368,10 +378,7 @@ public class AndroidExecutor {
             try (var stream = process.getInputStream()) {
                 output = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
             }
-            if (process.exitValue() != 0) {
-                throw new ExecutionErrorException("Android 设备已断连或命令失败: " + output.trim());
-            }
-            return output;
+            return new AdbResult(process.exitValue(), output);
         } catch (IOException e) {
             throw new ExecutionErrorException("Android 设备连接失败: " + e.getMessage(), e);
         } catch (InterruptedException e) {
