@@ -184,4 +184,44 @@ describe("TestcasesView", () => {
     // The case row still follows its group header.
     expect(vm.displayRows).toHaveLength(2);
   });
+
+  it("imports an OpenAPI definition into reviewable API drafts", async () => {
+    const fetchMock = vi.fn();
+    fetchMock.mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/import-openapi") && init?.method === "POST") {
+          return Promise.resolve(
+            jsonResponse({ created: 2, caseIds: [21, 22] }, 201),
+          );
+        }
+        if (url.includes("/testcases") && !init?.method) {
+          return Promise.resolve(jsonResponse(oneCase));
+        }
+        return Promise.resolve(jsonResponse({}));
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="openapi-open"]').trigger("click");
+    await flushPromises();
+    await wrapper
+      .find('[data-testid="openapi-definition"]')
+      .setValue(
+        '{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/pets":{"get":{"operationId":"listPets","responses":{"200":{"description":"ok"}}}},"/pets/{petId}":{"get":{"operationId":"showPetById","responses":{"200":{"description":"ok"}}}}}}',
+      );
+    await wrapper.find('[data-testid="openapi-submit"]').trigger("click");
+    await flushPromises();
+
+    const sent = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).includes("/import-openapi") && init?.method === "POST",
+    ) as [RequestInfo, RequestInit] | undefined;
+    expect(sent).toBeTruthy();
+    expect(JSON.parse(String(sent![1]?.body)).definition).toContain("listPets");
+    expect(wrapper.text()).toContain("已创建 2 个草稿用例，等待审核发布");
+  });
 });

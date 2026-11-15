@@ -77,3 +77,20 @@ export async function batchUpdateCases(
     { ids, fields, expectedVersion },
   );
 }
+
+export interface OpenApiImportResult {
+  created: number;
+  caseIds: number[];
+}
+
+/** Imports an OpenAPI definition as reviewable API drafts. */
+export async function importOpenApi(
+  projectId: number,
+  definition: string,
+): Promise<OpenApiImportResult> {
+  return apiSend<OpenApiImportResult>(
+    "POST",
+    `/api/v1/projects/${projectId}/testcases/import-openapi`,
+    { definition },
+  );
+}

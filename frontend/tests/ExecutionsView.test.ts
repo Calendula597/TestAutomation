@@ -220,4 +220,128 @@ describe("ExecutionsView", () => {
     expect(result).toContain("通过");
     expect(wrapper.text()).not.toContain("sk-live-secret");
   });
+
+  it("renders chained runs with per-row and per-step outcomes", async () => {
+    const CHAINED_DETAIL = {
+      id: 14,
+      jobType: "API",
+      status: "PASSED",
+      caseVersionId: 9,
+      environmentId: 3,
+      createdAt: "2026-11-14T11:00:00Z",
+      attempts: [
+        {
+          attemptNumber: 1,
+          status: "PASSED",
+          result: {
+            status: "PASSED",
+            rows: [
+              {
+                rowIndex: 0,
+                values: {},
+                status: "PASSED",
+                durationMs: 25,
+                steps: [
+                  {
+                    name: "登录",
+                    status: "PASSED",
+                    assertions: [
+                      {
+                        type: "JSONPATH",
+                        path: "$.code",
+                        expected: "OK",
+                        actual: "OK",
+                        passed: true,
+                      },
+                    ],
+                    extract: [{ variable: "token", value: "abc123def456" }],
+                    durationMs: 20,
+                    redirects: [],
+                  },
+                  {
+                    name: "我的资料",
+                    status: "PASSED",
+                    assertions: [
+                      {
+                        type: "JSONPATH",
+                        path: "$.user",
+                        expected: "alice",
+                        actual: "alice",
+                        passed: true,
+                      },
+                    ],
+                    extract: [],
+                    durationMs: 5,
+                    redirects: [],
+                  },
+                ],
+              },
+              {
+                rowIndex: 1,
+                values: { name: "bob" },
+                status: "ASSERTION_FAILED",
+                durationMs: 12,
+                steps: [
+                  {
+                    name: "登录",
+                    status: "PASSED",
+                    assertions: [
+                      {
+                        type: "JSONPATH",
+                        path: "$.code",
+                        expected: "OK",
+                        actual: "OK",
+                        passed: true,
+                      },
+                    ],
+                    extract: [{ variable: "token", value: "abc123def456" }],
+                    durationMs: 12,
+                    redirects: [],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/projects/1/executions/14")) {
+        return Promise.resolve(jsonResponse(CHAINED_DETAIL));
+      }
+      if (url.endsWith("/api/v1/projects/1/executions")) {
+        return Promise.resolve(
+          jsonResponse([
+            ...EXECUTIONS,
+            {
+              id: 14,
+              jobType: "API",
+              status: "PASSED",
+              caseVersionId: 9,
+              environmentId: 3,
+              createdAt: "2026-11-14T11:00:00Z",
+            },
+          ]),
+        );
+      }
+      return Promise.resolve(jsonResponse({}));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = await mountView();
+    await flushPromises();
+
+    await wrapper.find('[data-testid="exec-open-14"]').trigger("click");
+    await flushPromises();
+
+    const result = wrapper.find('[data-testid="exec-detail"]').text();
+    expect(result).toContain("数据行与步骤");
+    expect(result).toContain("登录");
+    expect(result).toContain("我的资料");
+    expect(result).toContain("token=abc123def456");
+    // The failing row is visible as its own outcome, not folded into the pass.
+    expect(result).toContain("断言失败");
+    expect(result).toContain("1/1");
+  });
 });

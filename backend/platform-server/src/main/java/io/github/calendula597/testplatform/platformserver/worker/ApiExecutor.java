@@ -21,22 +21,23 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * API single-request executor run inside the main Worker. The execution
- * chain: resolve the immutable case version and environment snapshot,
- * substitute plain variables, decrypt secrets only here at execution time,
- * enforce the target allowlist before the first byte and re-validate every
- * redirect hop, run real assertions, then mask and truncate everything that
- * will be stored or displayed.
+ * API executor run inside the main Worker: single requests (T15 shape),
+ * chained requests with response extraction, and data-row
+ * parameterization with per-row results.
  *
- * Assertion failures are ASSERTION_FAILED; infrastructure problems
- * (unreachable target, missing configuration) are ERROR. The executor
- * never reports PASSED for a request that did not actually happen.
+ * Invariants carried over from the single-request loop: secrets are
+ * decrypted only here at execution time and masked longest-first in every
+ * stored artifact; the target allowlist gates the first request and every
+ * redirect hop; assertion failures are ASSERTION_FAILED while
+ * infrastructure problems are ERROR. Data rows may never carry a secret
+ * value — pasting one aborts the row with an explicit reason. Execution
+ * jobs are never retried automatically, so no request here can be
+ * silently repeated by the platform.
  */
 @Component
 public class ApiExecutor {
@@ -70,17 +71,21 @@ public class ApiExecutor {
 
     public record ExecutionOutcome(String status, String reason, Map<String, Object> request,
                                    Map<String, Object> response, List<Map<String, Object>> assertions,
-                                   long durationMs, List<String> redirects) {
+                                   long durationMs, List<String> redirects, List<Map<String, Object>> rows) {
+    }
+
+    private record StepSpec(String name, JsonNode request, JsonNode extract, JsonNode assertions) {
     }
 
     public ExecutionOutcome execute(long caseVersionId, long environmentId) {
         try {
             return doExecute(caseVersionId, environmentId);
         } catch (ExecutionErrorException e) {
-            return new ExecutionOutcome(ExecutionJob.STATUS_ERROR, e.getMessage(), null, null, List.of(), 0, List.of());
+            return new ExecutionOutcome(ExecutionJob.STATUS_ERROR, e.getMessage(), null, null,
+                    List.of(), 0, List.of(), List.of());
         } catch (Exception e) {
             return new ExecutionOutcome(ExecutionJob.STATUS_ERROR,
-                    "执行器异常: " + e.getMessage(), null, null, List.of(), 0, List.of());
+                    "执行器异常: " + e.getMessage(), null, null, List.of(), 0, List.of(), List.of());
         }
     }
 
@@ -102,38 +107,153 @@ public class ApiExecutor {
         if (envVersion == null) {
             throw new ExecutionErrorException("环境版本数据缺失");
         }
+
+        List<StepSpec> steps = spec.has("requests")
+                ? parseSteps(spec.path("requests"))
+                : List.of(new StepSpec("", spec.path("request"), spec.path("extract"),
+                        spec.path("assertions")));
+        boolean hasDataRows = spec.has("dataRows") && spec.path("dataRows").isArray()
+                && !spec.path("dataRows").isEmpty();
+        List<Map<String, String>> dataRows = new ArrayList<>();
+        if (hasDataRows) {
+            for (JsonNode row : spec.path("dataRows")) {
+                dataRows.add(readStringMap(objectMapper.writeValueAsString(row)));
+            }
+        }
+
         List<String> targets = readStringList(envVersion.getTargets());
         Map<String, String> variables = readStringMap(envVersion.getPlainVariables());
-        Map<String, String> secrets = readStringMap(envVersion.getSecrets());
+        Map<String, String> secretCiphertexts = readStringMap(envVersion.getSecrets());
+        // Every stored secret is decrypted once here, at execution time, and
+        // drives masking for the whole run — whether or not a step uses it.
+        if (!secretCiphertexts.isEmpty() && !cryptoService.isConfigured()) {
+            throw new ExecutionErrorException("密钥加密未配置主密钥，无法解析密钥");
+        }
+        Map<String, String> secretPlain = new LinkedHashMap<>();
+        List<String> sensitiveValues = new ArrayList<>();
+        for (Map.Entry<String, String> entry : secretCiphertexts.entrySet()) {
+            String plain = cryptoService.decrypt(entry.getValue());
+            secretPlain.put(entry.getKey(), plain);
+            sensitiveValues.add(plain);
+        }
 
-        JsonNode requestSpec = spec.path("request");
+        // Legacy shape: exactly one request without data rows or extraction
+        // keeps the single-request result layout (T15 consumers).
+        if (steps.size() == 1 && !hasDataRows && steps.get(0).extract().isMissingNode()) {
+            return runLegacySingle(steps.get(0), variables, targets, secretPlain, sensitiveValues);
+        }
+
+        // Chains and data-row cases always run in rows shape; a chain
+        // without data rows still runs exactly once.
+        if (!hasDataRows) {
+            dataRows.add(Map.of());
+        }
+
+        List<Map<String, Object>> rowOutcomes = new ArrayList<>();
+        long totalMs = 0;
+        boolean anyError = false;
+        boolean anyAssertionFailed = false;
+        String firstErrorReason = null;
+        for (int index = 0; index < dataRows.size(); index++) {
+            Map<String, String> rowValues = dataRows.get(index);
+            if (carriesSecret(rowValues, sensitiveValues)) {
+                rowOutcomes.add(rowErrorOutcome(index, rowValues, sensitiveValues,
+                        "数据行不得包含密钥明文"));
+                anyError = true;
+                if (firstErrorReason == null) {
+                    firstErrorReason = "数据行不得包含密钥明文";
+                }
+                continue;
+            }
+            Map<String, String> rowVars = new LinkedHashMap<>(variables);
+            rowVars.putAll(rowValues);
+            RowRun run = runRow(steps, rowVars, targets, secretPlain, sensitiveValues);
+            totalMs += run.durationMs();
+            if (ExecutionJob.STATUS_ERROR.equals(run.status())) {
+                anyError = true;
+                if (firstErrorReason == null) {
+                    firstErrorReason = run.reason();
+                }
+            } else if (ExecutionJob.STATUS_ASSERTION_FAILED.equals(run.status())) {
+                anyAssertionFailed = true;
+            }
+            rowOutcomes.add(rowOutcome(index, rowValues, run, sensitiveValues));
+        }
+        String status = anyError ? ExecutionJob.STATUS_ERROR
+                : anyAssertionFailed ? ExecutionJob.STATUS_ASSERTION_FAILED
+                : ExecutionJob.STATUS_PASSED;
+        return new ExecutionOutcome(status, firstErrorReason, null, null, List.of(), totalMs,
+                List.of(), rowOutcomes);
+    }
+
+    private boolean carriesSecret(Map<String, String> rowValues, List<String> sensitiveValues) {
+        for (String value : rowValues.values()) {
+            if (sensitiveValues.contains(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Chain execution
+    // ------------------------------------------------------------------
+
+    private record RowRun(String status, String reason, long durationMs,
+                          List<Map<String, Object>> steps) {
+    }
+
+    private RowRun runRow(List<StepSpec> steps, Map<String, String> vars, List<String> targets,
+                          Map<String, String> secretPlain, List<String> sensitiveValues) {
+        List<Map<String, Object>> stepOutcomes = new ArrayList<>();
+        long rowMs = 0;
+        String rowStatus = ExecutionJob.STATUS_PASSED;
+        String rowReason = null;
+        for (StepSpec step : steps) {
+            Map<String, Object> outcome = runStep(step, vars, targets, secretPlain, sensitiveValues);
+            stepOutcomes.add(outcome);
+            rowMs += (long) outcome.getOrDefault("durationMs", 0L);
+            String stepStatus = (String) outcome.get("status");
+            if (ExecutionJob.STATUS_ERROR.equals(stepStatus)) {
+                rowStatus = ExecutionJob.STATUS_ERROR;
+                rowReason = (String) outcome.get("reason");
+                break;
+            }
+            if (ExecutionJob.STATUS_ASSERTION_FAILED.equals(stepStatus)
+                    && ExecutionJob.STATUS_PASSED.equals(rowStatus)) {
+                rowStatus = ExecutionJob.STATUS_ASSERTION_FAILED;
+            }
+        }
+        return new RowRun(rowStatus, rowReason, rowMs, stepOutcomes);
+    }
+
+    private Map<String, Object> runStep(StepSpec step, Map<String, String> vars, List<String> targets,
+                                        Map<String, String> secretPlain, List<String> sensitiveValues) {
+        JsonNode requestSpec = step.request();
         String method = requestSpec.path("method").asText("").toUpperCase();
         if (!List.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD").contains(method)) {
-            throw new ExecutionErrorException("不支持的 HTTP 方法: " + method);
+            return stepErrorOutcome(step.name(), "不支持的 HTTP 方法: " + method);
         }
-        String url = substitute(requestSpec.path("url").asText(""), variables);
+        String url = substitute(requestSpec.path("url").asText(""), vars);
         Map<String, String> headers = new LinkedHashMap<>();
         requestSpec.path("headers").properties().forEach(entry ->
-                headers.put(entry.getKey(), substitute(String.valueOf(entry.getValue()), variables)));
+                headers.put(entry.getKey(), substitute(entry.getValue().asText(""), vars)));
         String bodyType = requestSpec.path("bodyType").asText("JSON").toUpperCase();
         String body = requestSpec.has("body")
-                ? substitute(requestSpec.path("body").asText(""), variables) : null;
+                ? substitute(requestSpec.path("body").asText(""), vars) : null;
 
-        // Secrets are decrypted here, at execution time, and never stored.
-        List<String> sensitiveValues = new ArrayList<>();
-        applyAuthentication(requestSpec.path("auth"), secrets, headers, sensitiveValues);
+        applyAuthentication(requestSpec.path("auth"), headers, secretPlain, sensitiveValues);
 
-        // Pre-execution gate: the first hop must be inside the allowlist.
-        List<String> redirectHops = new ArrayList<>();
         TargetAllowlist.Check firstCheck = targetAllowlist.check(targets, url);
         if (!firstCheck.allowed()) {
-            throw new ExecutionErrorException(firstCheck.reason() + ": " + url);
+            return stepErrorOutcome(step.name(), firstCheck.reason() + ": " + url);
         }
 
         URI current = URI.create(url);
         byte[] responseBody = null;
         int statusCode = -1;
         Map<String, List<String>> responseHeaders = Map.of();
+        List<String> redirectHops = new ArrayList<>();
         long start = System.nanoTime();
         for (int hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
             try {
@@ -161,64 +281,98 @@ public class ApiExecutor {
                         break;
                     }
                     URI next = current.resolve(location);
-                    // Every redirect hop is re-validated as its own origin.
                     TargetAllowlist.Check hopCheck = targetAllowlist.check(targets, next.toString());
                     redirectHops.add(next.toString() + (hopCheck.allowed() ? " (允许)" : " (拒绝)"));
                     if (!hopCheck.allowed()) {
-                        return errorOutcome("目标不在白名单: " + next, sensitiveValues, redirectHops,
-                                elapsedMs(start), null);
+                        Map<String, Object> denied = stepErrorOutcome(step.name(),
+                                "目标不在白名单: " + next);
+                        denied.put("redirects", redirectHops);
+                        return denied;
                     }
                     current = next;
                     continue;
                 }
                 break;
             } catch (java.io.IOException e) {
-                return errorOutcome("网络错误: " + e.getMessage(), sensitiveValues, redirectHops,
-                        elapsedMs(start), null);
+                return stepErrorOutcome(step.name(), "网络错误: " + e.getMessage());
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return errorOutcome("执行被中断", sensitiveValues, redirectHops, elapsedMs(start), null);
+                return stepErrorOutcome(step.name(), "执行被中断");
             }
         }
+        long durationMs = (System.nanoTime() - start) / 1_000_000;
         if (statusCode == -1) {
-            return errorOutcome("重定向次数超限", sensitiveValues, redirectHops, elapsedMs(start), null);
+            Map<String, Object> exceeded = stepErrorOutcome(step.name(), "重定向次数超限");
+            exceeded.put("redirects", redirectHops);
+            return exceeded;
         }
-        long durationMs = elapsedMs(start);
 
         String rawBody = responseBody == null ? "" : new String(responseBody, StandardCharsets.UTF_8);
-        List<Map<String, Object>> assertions = runAssertions(spec.path("assertions"), rawBody,
-                statusCode, durationMs);
+        List<Map<String, Object>> assertions = runAssertions(step.assertions(), rawBody,
+                statusCode, durationMs, vars);
         boolean allPassed = assertions.stream().allMatch(a -> Boolean.TRUE.equals(a.get("passed")));
+        List<Map<String, Object>> extracted = runExtraction(step.extract(), rawBody, vars, sensitiveValues);
 
-        Map<String, Object> maskedRequest = maskRequest(method, url, headers, body, sensitiveValues);
-        Map<String, Object> maskedResponse = maskResponse(statusCode, responseHeaders, rawBody, sensitiveValues);
-        return new ExecutionOutcome(
-                allPassed ? ExecutionJob.STATUS_PASSED : ExecutionJob.STATUS_ASSERTION_FAILED,
-                null, maskedRequest, maskedResponse, assertions, durationMs, redirectHops);
+        Map<String, Object> outcome = new LinkedHashMap<>();
+        outcome.put("name", step.name());
+        outcome.put("status", allPassed ? ExecutionJob.STATUS_PASSED : ExecutionJob.STATUS_ASSERTION_FAILED);
+        outcome.put("request", maskRequest(method, url, headers, body, sensitiveValues));
+        outcome.put("response", maskResponse(statusCode, responseHeaders, rawBody, sensitiveValues));
+        outcome.put("assertions", assertions);
+        outcome.put("extract", extracted);
+        outcome.put("durationMs", durationMs);
+        outcome.put("redirects", redirectHops);
+        return outcome;
     }
 
-    private void applyAuthentication(JsonNode auth, Map<String, String> secrets,
-                                     Map<String, String> headers, List<String> sensitiveValues) {
+    private List<Map<String, Object>> runExtraction(JsonNode extractSpec, String body,
+                                                    Map<String, String> vars, List<String> sensitiveValues) {
+        List<Map<String, Object>> extracted = new ArrayList<>();
+        if (extractSpec == null || extractSpec.isMissingNode() || !extractSpec.isArray()) {
+            return extracted;
+        }
+        JsonNode parsed = tryParse(body);
+        for (JsonNode rule : extractSpec) {
+            String variable = rule.path("variable").asText("");
+            String path = rule.path("path").asText("$");
+            String type = rule.path("type").asText("JSONPATH");
+            String value = "";
+            if ("JSONPATH".equals(type)) {
+                value = parsed == null ? "" : resolveJsonPath(parsed, path);
+            }
+            if (!variable.isBlank() && !value.isEmpty()) {
+                vars.put(variable, value);
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("variable", variable);
+            row.put("value", mask(value, sensitiveValues));
+            extracted.add(row);
+        }
+        return extracted;
+    }
+
+    private void applyAuthentication(JsonNode auth, Map<String, String> headers,
+                                     Map<String, String> secretPlain, List<String> sensitiveValues) {
         if (auth == null || auth.isMissingNode() || auth.isNull()) {
             return;
         }
         String type = auth.path("type").asText("NONE").toUpperCase();
         switch (type) {
             case "BEARER" -> {
-                String value = decryptSecret(auth.path("secretKey").asText(""), secrets, sensitiveValues);
+                String value = requireSecret(auth.path("secretKey").asText(""), secretPlain);
                 headers.put("Authorization", "Bearer " + value);
                 sensitiveValues.add("Bearer " + value);
             }
             case "BASIC" -> {
-                String username = decryptSecret(auth.path("usernameKey").asText(""), secrets, sensitiveValues);
-                String password = decryptSecret(auth.path("passwordKey").asText(""), secrets, sensitiveValues);
+                String username = requireSecret(auth.path("usernameKey").asText(""), secretPlain);
+                String password = requireSecret(auth.path("passwordKey").asText(""), secretPlain);
                 String composed = "Basic " + Base64.getEncoder()
                         .encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8));
                 headers.put("Authorization", composed);
                 sensitiveValues.add(composed);
             }
             case "API_KEY" -> {
-                String value = decryptSecret(auth.path("secretKey").asText(""), secrets, sensitiveValues);
+                String value = requireSecret(auth.path("secretKey").asText(""), secretPlain);
                 headers.put(auth.path("headerName").asText("X-Api-Key"), value);
             }
             case "NONE" -> {
@@ -228,24 +382,99 @@ public class ApiExecutor {
         }
     }
 
-    private String decryptSecret(String key, Map<String, String> secrets, List<String> sensitiveValues) {
-        if (key.isBlank() || !secrets.containsKey(key)) {
+    private String requireSecret(String key, Map<String, String> secretPlain) {
+        if (key.isBlank() || !secretPlain.containsKey(key)) {
             throw new ExecutionErrorException("环境密钥不存在: " + key);
         }
-        if (!cryptoService.isConfigured()) {
-            throw new ExecutionErrorException("密钥加密未配置主密钥，无法解析密钥");
+        return secretPlain.get(key);
+    }
+
+    private Map<String, Object> stepErrorOutcome(String name, String reason) {
+        Map<String, Object> outcome = new LinkedHashMap<>();
+        outcome.put("name", name);
+        outcome.put("status", ExecutionJob.STATUS_ERROR);
+        outcome.put("reason", reason);
+        outcome.put("assertions", List.of());
+        outcome.put("extract", List.of());
+        outcome.put("durationMs", 0L);
+        return outcome;
+    }
+
+    private Map<String, Object> rowOutcome(int index, Map<String, String> rowValues, RowRun run,
+                                           List<String> sensitiveValues) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("rowIndex", index);
+        Map<String, Object> maskedValues = new LinkedHashMap<>();
+        rowValues.forEach((key, value) -> maskedValues.put(key, mask(value, sensitiveValues)));
+        row.put("values", maskedValues);
+        row.put("status", run.status());
+        if (run.reason() != null) {
+            row.put("reason", run.reason());
         }
-        String value = cryptoService.decrypt(secrets.get(key));
-        sensitiveValues.add(value);
-        return value;
+        row.put("durationMs", run.durationMs());
+        row.put("steps", run.steps());
+        return row;
+    }
+
+    private Map<String, Object> rowErrorOutcome(int index, Map<String, String> rowValues,
+                                                List<String> sensitiveValues, String reason) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("rowIndex", index);
+        Map<String, Object> maskedValues = new LinkedHashMap<>();
+        rowValues.forEach((key, value) -> maskedValues.put(key, mask(value, sensitiveValues)));
+        row.put("values", maskedValues);
+        row.put("status", ExecutionJob.STATUS_ERROR);
+        row.put("reason", reason);
+        row.put("steps", List.of());
+        return row;
+    }
+
+    // ------------------------------------------------------------------
+    // Legacy single-request shape (T15)
+    // ------------------------------------------------------------------
+
+    private ExecutionOutcome runLegacySingle(StepSpec step, Map<String, String> variables,
+                                             List<String> targets, Map<String, String> secretPlain,
+                                             List<String> sensitiveValues) {
+        Map<String, Object> outcome = runStep(step, new LinkedHashMap<>(variables), targets,
+                secretPlain, sensitiveValues);
+        String status = (String) outcome.get("status");
+        String reason = (String) outcome.get("reason");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> request = (Map<String, Object>) outcome.get("request");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> response = (Map<String, Object>) outcome.get("response");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> assertions = (List<Map<String, Object>>) outcome.get("assertions");
+        @SuppressWarnings("unchecked")
+        List<String> redirects = (List<String>) outcome.getOrDefault("redirects", List.of());
+        return new ExecutionOutcome(status, reason, request, response, assertions,
+                (long) outcome.getOrDefault("durationMs", 0L), redirects, List.of());
+    }
+
+    // ------------------------------------------------------------------
+    // Shared helpers
+    // ------------------------------------------------------------------
+
+    private List<StepSpec> parseSteps(JsonNode requests) {
+        List<StepSpec> steps = new ArrayList<>();
+        for (JsonNode node : requests) {
+            steps.add(new StepSpec(node.path("name").asText(""), node.path("request"),
+                    node.path("extract"), node.path("assertions")));
+        }
+        if (steps.isEmpty()) {
+            throw new ExecutionErrorException("执行配置缺少请求步骤");
+        }
+        return steps;
     }
 
     private List<Map<String, Object>> runAssertions(JsonNode assertions, String body,
-                                                    int statusCode, long durationMs) {
+                                                    int statusCode, long durationMs,
+                                                    Map<String, String> vars) {
         List<Map<String, Object>> results = new ArrayList<>();
         for (JsonNode node : assertions) {
             String type = node.path("type").asText("");
-            String expected = node.path("expected").asText("");
+            String expected = substitute(node.path("expected").asText(""), vars);
             String actual;
             boolean passed;
             switch (type) {
@@ -352,18 +581,6 @@ public class ApiExecutor {
         return response;
     }
 
-    private ExecutionOutcome errorOutcome(String reason, List<String> sensitiveValues,
-                                          List<String> redirectHops, long durationMs,
-                                          Map<String, Object> request) {
-        return new ExecutionOutcome(ExecutionJob.STATUS_ERROR, reason, request, null,
-                List.of(), durationMs, redirectHops);
-    }
-
-    private ExecutionOutcome errorOutcome(String reason, List<String> sensitiveValues,
-                                          List<String> redirectHops, long durationMs) {
-        return errorOutcome(reason, sensitiveValues, redirectHops, durationMs, null);
-    }
-
     /** Replaces every secret occurrence in output artifacts with the mask,
      * longest values first so composed credentials are fully removed. */
     private String mask(String value, List<String> sensitiveValues) {
@@ -393,10 +610,6 @@ public class ApiExecutor {
             result = result.replace("{{" + key + "}}", variables.get(key));
         }
         return result;
-    }
-
-    private long elapsedMs(long startNanos) {
-        return (System.nanoTime() - startNanos) / 1_000_000;
     }
 
     private String truncate(String value, int maxChars) {

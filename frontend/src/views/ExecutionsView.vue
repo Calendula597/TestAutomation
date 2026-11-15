@@ -41,6 +41,10 @@ const state = reactive({
   detail: null as ExecutionDetail | null,
 });
 
+const passedAssertions = (step: {
+  assertions: { passed: boolean }[];
+}): number => step.assertions.filter((a) => a.passed).length;
+
 async function load(): Promise<void> {
   state.loading = true;
   state.error = null;
@@ -241,6 +245,62 @@ watch(projectId, load);
             <p v-if="attempt.result.reason" class="reason-line">
               原因：{{ attempt.result.reason }}
             </p>
+            <!-- Chained / data-row runs report per-row results. -->
+            <div
+              v-if="attempt.result.rows && attempt.result.rows.length"
+              class="section"
+            >
+              <span class="section-label">数据行与步骤</span>
+              <div
+                v-for="row in attempt.result.rows"
+                :key="row.rowIndex"
+                class="chain-row"
+              >
+                <div class="row-meta">
+                  <el-tag
+                    :type="row.status === 'PASSED' ? 'success' : 'danger'"
+                    size="small"
+                    >行 {{ row.rowIndex }} ·
+                    {{ STATUS_LABELS[row.status] ?? row.status }}</el-tag
+                  >
+                  <span class="row-values">{{
+                    Object.entries(row.values)
+                      .map(([k, v]) => `${k}=${v}`)
+                      .join("，") || "无参数"
+                  }}</span>
+                </div>
+                <el-table :data="row.steps" size="small" class="steps-table">
+                  <el-table-column prop="name" label="步骤" width="140" />
+                  <el-table-column label="状态" width="120">
+                    <template #default="{ row: step }">
+                      <el-tag
+                        :type="step.status === 'PASSED' ? 'success' : 'danger'"
+                        size="small"
+                        >{{ STATUS_LABELS[step.status] ?? step.status }}</el-tag
+                      >
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="断言" width="110">
+                    <template #default="{ row: step }">
+                      {{ passedAssertions(step) }}/{{ step.assertions.length }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="提取变量" width="180">
+                    <template #default="{ row: step }">
+                      {{
+                        step.extract
+                          .map(
+                            (e: { variable: string; value: string }) =>
+                              `${e.variable}=${e.value}`,
+                          )
+                          .join("，") || "—"
+                      }}
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="durationMs" label="耗时(ms)" />
+                </el-table>
+              </div>
+            </div>
             <div v-if="attempt.result.request" class="section">
               <span class="section-label">请求（脱敏）</span>
               <div class="kv">
@@ -299,7 +359,7 @@ watch(projectId, load);
             </div>
             <p class="duration-line">
               耗时 {{ attempt.result.durationMs }} ms
-              <template v-if="attempt.result.redirects.length">
+              <template v-if="attempt.result.redirects?.length">
                 · 重定向：{{ attempt.result.redirects.join("、") }}
               </template>
             </p>
@@ -354,6 +414,25 @@ watch(projectId, load);
   display: block;
   color: var(--el-text-color-secondary);
   font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.chain-row {
+  margin-bottom: 10px;
+}
+
+.row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.row-values {
+  color: var(--el-text-color-regular);
+}
+
+.steps-table {
   margin-bottom: 4px;
 }
 

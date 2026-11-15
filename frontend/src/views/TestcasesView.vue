@@ -27,6 +27,7 @@ import { ElMessage } from "element-plus";
 import {
   batchUpdateCases,
   fetchCases,
+  importOpenApi,
   updateCase,
   type CaseRow,
   type StepRow,
@@ -80,6 +81,13 @@ const state = reactive({
     preview: null as ImportPreview | null,
     previewing: false,
     committing: false,
+    error: null as string | null,
+  },
+  openapi: {
+    visible: false,
+    definition: "",
+    submitting: false,
+    created: null as number | null,
     error: null as string | null,
   },
   myRole: "" as string,
@@ -390,6 +398,29 @@ function exportCases(format: string): void {
   window.location.href = `/api/v1/projects/${projectId.value}/testcases/export?format=${format}`;
 }
 
+/** OpenAPI import creates drafts only; publishing stays with the owner. */
+async function runOpenApiImport(): Promise<void> {
+  if (!state.openapi.definition.trim()) {
+    return;
+  }
+  state.openapi.submitting = true;
+  state.openapi.error = null;
+  try {
+    const result = await importOpenApi(
+      projectId.value,
+      state.openapi.definition,
+    );
+    state.openapi.created = result.created;
+    state.openapi.definition = "";
+    await load();
+  } catch (error) {
+    state.openapi.error =
+      error instanceof ApiError ? error.message : String(error);
+  } finally {
+    state.openapi.submitting = false;
+  }
+}
+
 function addStep(): void {
   state.steps.push({ action: "", testData: "", expected: "" });
 }
@@ -521,6 +552,13 @@ onBeforeUnmount(() => {
             @click="state.import.visible = true"
           >
             导入
+          </el-button>
+          <el-button
+            size="small"
+            data-testid="openapi-open"
+            @click="state.openapi.visible = true"
+          >
+            OpenAPI 导入
           </el-button>
           <el-dropdown size="small" @command="exportCases">
             <el-button size="small" data-testid="export-open">导出</el-button>
@@ -832,6 +870,51 @@ onBeforeUnmount(() => {
           @click="runCommit"
         >
           确认导入草稿
+        </el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="state.openapi.visible"
+      title="从 OpenAPI 导入草稿"
+      width="720px"
+    >
+      <el-alert
+        v-if="state.openapi.created !== null"
+        type="success"
+        :closable="false"
+        show-icon
+        :title="`已创建 ${state.openapi.created} 个草稿用例，等待审核发布`"
+        data-testid="openapi-result"
+      />
+      <el-alert
+        v-if="state.openapi.error"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="state.openapi.error"
+      />
+      <el-form label-position="top">
+        <el-form-item label="OpenAPI 3.x 定义（JSON）">
+          <el-input
+            v-model="state.openapi.definition"
+            type="textarea"
+            :rows="12"
+            placeholder='{"openapi":"3.0.3","info":{...},"paths":{...}}'
+            data-testid="openapi-definition"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="state.openapi.visible = false">关闭</el-button>
+        <el-button
+          type="primary"
+          :loading="state.openapi.submitting"
+          :disabled="!state.openapi.definition.trim()"
+          data-testid="openapi-submit"
+          @click="runOpenApiImport"
+        >
+          导入为草稿
         </el-button>
       </template>
     </el-dialog>

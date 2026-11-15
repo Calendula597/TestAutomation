@@ -275,19 +275,46 @@ public class TestCaseController {
         }
     }
 
-    /** Execution schemas must at least carry a request with method and URL. */
+    /** Execution schemas carry either a single request or a request chain;
+     * every request needs a method and a URL. */
     private ResponseEntity<?> validateExecution(Map<String, Object> execution) {
         Object request = execution.get("request");
-        if (!(request instanceof Map<?, ?> requestMap)
-                || ((Map<?, ?>) requestMap).get("method") == null
-                || String.valueOf(((Map<?, ?>) requestMap).get("method")).isBlank()
-                || ((Map<?, ?>) requestMap).get("url") == null
-                || String.valueOf(((Map<?, ?>) requestMap).get("url")).isBlank()) {
-            return badRequest("API 执行配置必须包含 request.method 与 request.url");
+        Object requests = execution.get("requests");
+        if (request instanceof Map<?, ?> requestMap) {
+            ResponseEntity<?> invalid = validateRequest(requestMap);
+            if (invalid != null) {
+                return invalid;
+            }
+        } else if (requests instanceof List<?> chain) {
+            if (chain.isEmpty()) {
+                return badRequest("请求链不能为空");
+            }
+            for (Object step : chain) {
+                if (!(step instanceof Map<?, ?> stepMap)
+                        || !(stepMap.get("request") instanceof Map<?, ?> requestMap)) {
+                    return badRequest("请求链的每个步骤必须包含 request");
+                }
+                ResponseEntity<?> invalid = validateRequest(requestMap);
+                if (invalid != null) {
+                    return invalid;
+                }
+            }
+        } else {
+            return badRequest("API 执行配置必须包含 request 或 requests");
         }
         Object assertions = execution.get("assertions");
         if (assertions != null && !(assertions instanceof List<?>)) {
             return badRequest("断言必须是数组");
+        }
+        return null;
+    }
+
+    private ResponseEntity<?> validateRequest(Map<?, ?> requestMap) {
+        if (requestMap.get("method") == null
+                || String.valueOf(requestMap.get("method")).isBlank()
+                || requestMap.get("url") == null
+                || String.valueOf(requestMap.get("url")).isBlank()) {
+            return badRequest("每个请求必须包含 method 与 url");
         }
         return null;
     }

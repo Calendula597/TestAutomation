@@ -26,6 +26,37 @@ export interface MaskedAssertion {
   passed: boolean;
 }
 
+export interface ChainStepResult {
+  name: string;
+  status: string;
+  reason?: string | null;
+  request?: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: string;
+  } | null;
+  response?: {
+    statusCode: number;
+    headers: Record<string, string>;
+    body: string;
+    bodyTruncated: boolean;
+  } | null;
+  assertions: MaskedAssertion[];
+  extract: { variable: string; value: string }[];
+  durationMs: number;
+  redirects: string[];
+}
+
+export interface ChainRowResult {
+  rowIndex: number;
+  values: Record<string, string>;
+  status: string;
+  reason?: string | null;
+  durationMs: number;
+  steps: ChainStepResult[];
+}
+
 export interface ExecutionResult {
   status: string;
   reason?: string | null;
@@ -44,6 +75,7 @@ export interface ExecutionResult {
   assertions: MaskedAssertion[];
   durationMs: number;
   redirects: string[];
+  rows?: ChainRowResult[];
 }
 
 export interface ExecutionAttempt {
