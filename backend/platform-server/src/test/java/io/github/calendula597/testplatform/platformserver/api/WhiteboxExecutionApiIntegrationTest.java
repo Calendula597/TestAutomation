@@ -344,7 +344,7 @@ class WhiteboxExecutionApiIntegrationTest {
 
         HttpResult detail = runWorker(admin, jobId);
 
-        assertThat(detail.body().get("status").asText()).isEqualTo("TIMED_OUT");
+        assertThat(detail.body().get("status").asText()).as(detail.body().toString()).isEqualTo("TIMED_OUT");
     }
 
     @Test
