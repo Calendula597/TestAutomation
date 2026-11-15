@@ -151,10 +151,36 @@ public class PerformanceExecutor {
         }
     }
 
-    private List<String> dockerCommand(Path runDirectory, Path script, Path summary, Path containerIdFile) {
-        return List.of("docker", "run", "--rm", "--add-host", "host.docker.internal:host-gateway",
-                "--cidfile", containerIdFile.toString(), "-v", runDirectory + ":/work", k6Image,
-                "run", "/work/" + script.getFileName(), "--summary-export", "/work/" + summary.getFileName());
+    private List<String> dockerCommand(Path runDirectory, Path script, Path summary,
+                                       Path containerIdFile) throws Exception {
+        List<String> args = new ArrayList<>(List.of("docker", "run", "--rm",
+                "--add-host", "host.docker.internal:host-gateway"));
+        if (!System.getProperty("os.name").toLowerCase().contains("win")) {
+            args.add("--user");
+            args.add(hostDockerUser());
+            args.add("-e");
+            args.add("HOME=/tmp");
+        }
+        args.addAll(List.of("--cidfile", containerIdFile.toString(), "-v", runDirectory + ":/work", k6Image,
+                "run", "/work/" + script.getFileName(), "--summary-export", "/work/" + summary.getFileName()));
+        return args;
+    }
+
+    private String hostDockerUser() throws Exception {
+        return readHostId("-u") + ":" + readHostId("-g");
+    }
+
+    private String readHostId(String option) throws Exception {
+        Process process = new ProcessBuilder("id", option).redirectErrorStream(true).start();
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IOException("读取宿主机用户映射超时");
+        }
+        String id = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
+        if (process.exitValue() != 0 || !id.matches("[0-9]+")) {
+            throw new IOException("无法确定 k6 容器用户映射");
+        }
+        return id;
     }
 
     private List<String> binaryCommand(Path script, Path summary) {
