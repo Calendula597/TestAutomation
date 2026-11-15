@@ -58,7 +58,7 @@ jobs:
         run: npm ci
       - name: Native Windows acceptance
         working-directory: backend
-        run: mvn -B --no-transfer-progress -pl platform-server -Dtest=WindowsExecutionApiIntegrationTest -Dlogging.level.org.springframework.security=INFO test
+        run: mvn -B --no-transfer-progress -pl platform-server '-Dtest=WindowsExecutionApiIntegrationTest' '-Dlogging.level.org.springframework.security=INFO' test
 
   frontend:
     runs-on: ubuntu-latest
